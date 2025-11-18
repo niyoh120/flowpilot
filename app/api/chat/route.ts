@@ -1,0 +1,394 @@
+import { streamText, convertToModelMessages } from "ai";
+
+import { z } from "zod/v3";
+import { resolveChatModel } from "@/lib/server-models";
+
+export const maxDuration = 60
+
+export async function POST(req: Request) {
+  try {
+    const { messages, xml, modelRuntime } = await req.json();
+
+    if (!modelRuntime) {
+      return Response.json(
+        { error: "Missing model runtime configuration." },
+        { status: 400 }
+      );
+    }
+    
+    // 获取请求的 AbortSignal，用于取消流式响应
+    const abortSignal = req.signal;
+
+    const systemMessage = `
+You are an expert diagram creation assistant specializing in draw.io XML generation.
+Your primary function is crafting clear, well-organized visual diagrams through precise XML specifications.
+You can see the image that user uploaded.
+
+**IMPORTANT: Built-in Professional Icon Libraries**
+
+Draw.io includes professional icon libraries that make diagrams more vivid and production-ready. **You should proactively use appropriate icons to enhance visual appeal**, even when not explicitly requested.
+
+**When to Use Icons:**
+- ✅ ALWAYS use for cloud services (AWS/Azure/GCP)
+- ✅ Use for network diagrams (Cisco devices, servers, databases)
+- ✅ Use for software architecture (UML, components)
+- ✅ Use to represent specific technologies (Docker, Kubernetes, databases)
+- ✅ Use to make generic flowcharts more engaging (add icons for different node types)
+
+**Available Icon Libraries:**
+
+1. **AWS Architecture Icons (AWS 2025)** - ALWAYS use for AWS diagrams
+   - Shape format: \`shape=mxgraph.aws4.[category].[service]\`
+   - Common services:
+     * EC2: \`shape=mxgraph.aws4.compute.ec2_instance\`
+     * S3: \`shape=mxgraph.aws4.storage.s3\`
+     * Lambda: \`shape=mxgraph.aws4.compute.lambda_function\`
+     * RDS: \`shape=mxgraph.aws4.database.rds\`
+     * ALB: \`shape=mxgraph.aws4.networkingcontentdelivery.elastic_load_balancing\`
+     * VPC: \`shape=mxgraph.aws4.networkingcontentdelivery.vpc\`
+     * API Gateway: \`shape=mxgraph.aws4.networkingcontentdelivery.api_gateway\`
+     * DynamoDB: \`shape=mxgraph.aws4.database.dynamodb\`
+   - When user mentions AWS services, automatically use AWS 2025 icons
+
+2. **Azure Icons** - Use for Microsoft Azure architectures
+   - Shape format: \`shape=mxgraph.azure.[category].[service]\`
+   - Examples:
+     * VM: \`shape=mxgraph.azure.compute.virtual_machine\`
+     * Blob Storage: \`shape=mxgraph.azure.storage.blob_storage\`
+     * App Service: \`shape=mxgraph.azure.compute.app_service\`
+     * Azure SQL: \`shape=mxgraph.azure.databases.sql_database\`
+     * Functions: \`shape=mxgraph.azure.compute.function_app\`
+
+3. **GCP Icons** - Use for Google Cloud Platform
+   - Shape format: \`shape=mxgraph.gcp2017.[category].[service]\`
+   - Examples:
+     * Compute Engine: \`shape=mxgraph.gcp2017.compute.compute_engine\`
+     * Cloud Storage: \`shape=mxgraph.gcp2017.storage.cloud_storage\`
+     * Cloud Functions: \`shape=mxgraph.gcp2017.compute.cloud_functions\`
+     * Cloud SQL: \`shape=mxgraph.gcp2017.databases.cloud_sql\`
+
+4. **Kubernetes** - Use for container orchestration diagrams
+   - Shape format: \`shape=mxgraph.kubernetes.[resource]\`
+   - Examples: pod, deployment, service, ingress, configmap, secret
+
+5. **Cisco** - Use for network topology diagrams
+   - Shape format: \`shape=mxgraph.cisco.[device_type]\`
+   - Examples: router, switch, firewall, server
+
+6. **Basic Infrastructure Icons** (mxgraph.basic)
+   - Database: \`shape=mxgraph.basic.database\`
+   - Server: \`shape=mxgraph.basic.server\`
+   - Cloud: \`shape=mxgraph.basic.cloud\`
+   - Mobile Device: \`shape=mxgraph.basic.smartphone\`
+   - User/Person: \`shape=mxgraph.basic.user\`
+
+**Icon Usage Guidelines:**
+- **Be Proactive**: Even for generic flowcharts, consider using icons to represent different concepts (e.g., user icon for "User Input", database icon for "Save Data")
+- **Consistency**: Use consistent icon style within the same diagram
+- **Visual Hierarchy**: Icons make important nodes stand out
+- **Professional Look**: Official cloud provider icons make technical diagrams more professional
+- **Color Coordination**: Icons often come with standard colors that improve visual appeal
+- **Don't Overuse**: Balance between icons and simple shapes - not every element needs an icon
+
+**Examples of Proactive Icon Usage:**
+
+Generic Flowchart Enhancement:
+- "User Registration" → Add user icon (\`shape=mxgraph.basic.user\`)
+- "Save to Database" → Add database icon (\`shape=mxgraph.basic.database\`)
+- "Send Email" → Add envelope/mail icon
+- "Cloud Sync" → Add cloud icon (\`shape=mxgraph.basic.cloud\`)
+
+Business Process:
+- "Customer" → User icon
+- "Order System" → Server icon
+- "Payment Processing" → Credit card/payment icon
+- "Inventory Database" → Database icon
+
+**Remember**: Icons are built into draw.io - no import needed. Use them to make diagrams more engaging and professional!
+
+You utilize the following tools:
+---Tool1---
+tool name: display_diagram
+description: Display a NEW diagram on draw.io. Use this when creating a diagram from scratch or when major structural changes are needed.
+parameters: {
+  xml: string
+}
+---Tool2---
+tool name: edit_diagram
+description: Edit specific parts of the EXISTING diagram. Use this when making small targeted changes like adding/removing elements, changing labels, or adjusting properties. This is more efficient than regenerating the entire diagram.
+parameters: {
+  edits: Array<{search: string, replace: string}>
+}
+---End of tools---
+
+IMPORTANT: Choose the right tool:
+- Use display_diagram for: Creating new diagrams, major restructuring, or when the current diagram XML is empty
+- Use edit_diagram for: Small modifications, adding/removing elements, changing text/colors, repositioning items
+
+Core capabilities:
+- Generate valid, well-formed XML strings for draw.io diagrams
+- Create professional flowcharts, mind maps, entity diagrams, and technical illustrations
+- **Proactively use appropriate icons from built-in libraries to enhance visual appeal**
+- Convert user descriptions into visually appealing diagrams using shapes, icons, and connectors
+- Apply proper spacing, alignment and visual hierarchy in diagram layouts
+- Choose appropriate colors and styles to make diagrams more engaging
+- Adapt artistic concepts into abstract diagram representations using available shapes and icons
+- Optimize element positioning to prevent overlapping and maintain readability
+- Structure complex systems into clear, organized visual components
+
+**Visual Enhancement Strategy:**
+- For cloud diagrams: Use official provider icons (AWS/Azure/GCP)
+- For network diagrams: Use Cisco/infrastructure icons
+- For generic flowcharts: Add relevant icons (user, database, cloud, etc.) to key nodes
+- For business processes: Use icons to represent actors, systems, and data stores
+- Balance between icons and simple shapes - not every element needs an icon
+- Icons make diagrams more professional and easier to understand at a glance
+
+Layout constraints:
+- CRITICAL: Keep all diagram elements within a single page viewport to avoid page breaks
+- Position all elements with x coordinates between 0-800 and y coordinates between 0-600
+- Maximum width for containers (like AWS cloud boxes): 700 pixels
+- Maximum height for containers: 550 pixels
+- Use compact, efficient layouts that fit the entire diagram in one view
+- Start positioning from reasonable margins (e.g., x=40, y=40) and keep elements grouped closely
+- For large diagrams with many elements, use vertical stacking or grid layouts that stay within bounds
+- Avoid spreading elements too far apart horizontally - users should see the complete diagram without a page break line
+
+Note that:
+- Focus on producing clean, professional diagrams that effectively communicate the intended information through thoughtful layout and design choices.
+- **Proactively use icons to make diagrams more visually appealing**, even when not explicitly requested. Icons make diagrams easier to understand and more professional.
+- When artistic drawings are requested, creatively compose them using standard diagram shapes and connectors while maintaining visual clarity.
+- Return XML only via tool calls, never in text responses.
+- If user asks you to replicate a diagram based on an image, remember to match the diagram style and layout as closely as possible. Especially, pay attention to the lines and shapes, for example, if the lines are straight or curved, and if the shapes are rounded or square.
+- **For cloud architectures, ALWAYS use official provider icons (AWS 2025, Azure, GCP)** - this is expected and makes diagrams significantly more professional.
+- For generic flowcharts, consider adding icons to represent different concepts (user, database, cloud, server, etc.) to enhance visual appeal.
+
+When using edit_diagram tool:
+- Keep edits minimal - only include the specific line being changed plus 1-2 context lines
+- Example GOOD edit: {"search": "  <mxCell id=\"2\" value=\"Old Text\">", "replace": "  <mxCell id=\"2\" value=\"New Text\">"}
+- Example BAD edit: Including 10+ unchanged lines just to change one attribute
+- For multiple changes, use separate edits: [{"search": "line1", "replace": "new1"}, {"search": "line2", "replace": "new2"}]
+- CRITICAL: If edit_diagram fails because the search pattern cannot be found, fall back to using display_diagram to regenerate the entire diagram with your changes. Do NOT keep trying edit_diagram with different search patterns.
+`;
+
+    const lastMessage = messages[messages.length - 1];
+
+    // Extract text from the last message parts
+    const lastMessageText = lastMessage.parts?.find((part: any) => part.type === 'text')?.text || '';
+
+    // Extract file parts (images) from the last message
+    const fileParts = lastMessage.parts?.filter((part: any) => part.type === 'file') || [];
+
+    const formattedTextContent = `
+Current diagram XML:
+"""xml
+${xml || ''}
+"""
+User input:
+"""md
+${lastMessageText}
+"""`;
+
+    // Convert UIMessages to ModelMessages and add system message
+    const modelMessages = convertToModelMessages(messages);
+    let enhancedMessages = [...modelMessages];
+
+    // Update the last message with formatted content if it's a user message
+    if (enhancedMessages.length >= 1) {
+      const lastModelMessage = enhancedMessages[enhancedMessages.length - 1];
+      if (lastModelMessage.role === 'user') {
+        // Build content array with text and file parts
+        const contentParts: any[] = [
+          { type: 'text', text: formattedTextContent }
+        ];
+
+        // Add image parts back
+        for (const filePart of fileParts) {
+          contentParts.push({
+            type: 'image',
+            image: filePart.url,
+            mimeType: filePart.mediaType
+          });
+        }
+
+        enhancedMessages = [
+          ...enhancedMessages.slice(0, -1),
+          { ...lastModelMessage, content: contentParts }
+        ];
+      }
+    }
+
+    const resolvedModel = resolveChatModel(modelRuntime);
+    console.log("Enhanced messages:", enhancedMessages, "model:", resolvedModel.id);
+    console.log("Model runtime config:", {
+        baseUrl: modelRuntime.baseUrl,
+        modelId: modelRuntime.modelId,
+        hasApiKey: !!modelRuntime.apiKey,
+    });
+
+    const result = streamText({
+      // model: google("gemini-2.5-flash-preview-05-20"),
+      // model: google("gemini-2.5-pro"),
+      system: systemMessage,
+      model: resolvedModel.model,
+      // model: model,
+      // providerOptions: {
+      //   google: {
+      //     thinkingConfig: {
+      //       thinkingBudget: 128,
+      //     },
+      //   }
+      // },
+      // providerOptions: {
+      //   openai: {
+      //     reasoningEffort: "minimal"
+      //   },
+      // },
+      messages: enhancedMessages,
+      abortSignal,  // 传递 AbortSignal 以支持取消请求
+      tools: {
+        // Client-side tool that will be executed on the client
+        display_diagram: {
+          description: `Display a diagram on draw.io. You only need to pass the nodes inside the <root> tag (including the <root> tag itself) in the XML string.
+          
+          Example structure:
+          <root>
+            <mxCell id="0"/>
+            <mxCell id="1" parent="0"/>
+            <mxCell id="2" value="Hello, World!" style="shape=rectangle" parent="1">
+              <mxGeometry x="20" y="20" width="100" height="100" as="geometry"/>
+            </mxCell>
+          </root>
+          
+          **Using Professional Icons:**
+          - For AWS services, use AWS 2025 icons: shape=mxgraph.aws4.[category].[service]
+          - For Azure services, use Azure icons: shape=mxgraph.azure.[category].[service]
+          - For GCP services, use GCP icons: shape=mxgraph.gcp2017.[category].[service]
+          - These icons make diagrams more professional and vivid
+          
+          **IMPORTANT:** The diagram will be rendered to draw.io canvas in REAL-TIME as you stream the XML. The canvas updates automatically during streaming to show live progress.
+          `,
+          inputSchema: z.object({
+            xml: z.string().describe("XML string to be displayed on draw.io")
+          })
+        },
+        edit_diagram: {
+          description: `Edit specific parts of the current diagram by replacing exact line matches. Use this tool to make targeted fixes without regenerating the entire XML.
+IMPORTANT: Keep edits concise:
+- Only include the lines that are changing, plus 1-2 surrounding lines for context if needed
+- Break large changes into multiple smaller edits
+- Each search must contain complete lines (never truncate mid-line)
+- First match only - be specific enough to target the right element`,
+          inputSchema: z.object({
+            edits: z.array(z.object({
+              search: z.string().describe("Exact lines to search for (including whitespace and indentation)"),
+              replace: z.string().describe("Replacement lines")
+            })).describe("Array of search/replace pairs to apply sequentially")
+          })
+        },
+      },
+      temperature: 0,
+    });
+
+    // Error handler function to provide detailed error messages
+    function errorHandler(error: unknown) {
+      console.error('Stream error:', error);
+      
+      if (error == null) {
+        return 'unknown error';
+      }
+
+      if (typeof error === 'string') {
+        return error;
+      }
+
+      if (error instanceof Error) {
+        // 检查是否是网络错误或 API 错误
+        const errorMessage = error.message;
+        if (errorMessage.includes('404') || errorMessage.includes('Not Found')) {
+          return `API 接口未找到。请检查 Base URL 配置是否正确。当前配置: ${modelRuntime?.baseUrl || '未知'}`;
+        }
+        if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+          return 'API Key 无效或已过期，请检查配置。';
+        }
+        if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+          return 'API Key 权限不足，请检查配置。';
+        }
+        return errorMessage;
+      }
+
+      return JSON.stringify(error);
+    }
+
+    // 记录请求开始时间
+    const startTime = Date.now();
+
+    return result.toUIMessageStreamResponse({
+      onError: errorHandler,
+      // 在流式响应结束时添加 token 使用信息到 message metadata
+      onFinish: async ({ responseMessage, messages }) => {
+        const endTime = Date.now();
+        const durationMs = endTime - startTime;
+        
+        // 获取 token 使用信息
+        const usage = await result.usage;
+        const totalUsage = await result.totalUsage;
+        
+        console.log('Stream finished:', {
+          usage: {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            totalTokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
+          },
+          totalUsage: {
+            inputTokens: totalUsage.inputTokens,
+            outputTokens: totalUsage.outputTokens,
+            totalTokens: (totalUsage.inputTokens || 0) + (totalUsage.outputTokens || 0),
+          },
+          durationMs,
+        });
+      },
+      // 提取 metadata 发送到客户端
+      messageMetadata: ({ part }) => {
+        // 在 finish 事件中返回 usage 信息
+        if (part.type === 'finish') {
+          return {
+            usage: {
+              inputTokens: part.totalUsage?.inputTokens || 0,
+              outputTokens: part.totalUsage?.outputTokens || 0,
+              totalTokens: (part.totalUsage?.inputTokens || 0) + (part.totalUsage?.outputTokens || 0),
+            },
+            durationMs: Date.now() - startTime,
+          } as any;
+        }
+        // 在 finish-step 事件中也可以返回
+        if (part.type === 'finish-step') {
+          return {
+            usage: {
+              inputTokens: part.usage?.inputTokens || 0,
+              outputTokens: part.usage?.outputTokens || 0,
+              totalTokens: (part.usage?.inputTokens || 0) + (part.usage?.outputTokens || 0),
+            },
+            durationMs: Date.now() - startTime,
+          } as any;
+        }
+        return undefined;
+      },
+    });
+  } catch (error) {
+    console.error('Error in chat route:', error);
+    // 提供更详细的错误信息
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorDetails = error instanceof Error ? error.stack : undefined;
+    console.error('Error details:', { errorMessage, errorDetails });
+    
+    return Response.json(
+      { 
+        error: 'Internal server error',
+        message: errorMessage,
+        ...(process.env.NODE_ENV === 'development' && { details: errorDetails })
+      },
+      { status: 500 }
+    );
+  }
+}
