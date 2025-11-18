@@ -93,7 +93,7 @@ async function exportDiagramPreview(xml: string): Promise<{
         params.set("h", "600");
         params.set("xml", xml);
 
-        const response = await fetch("https://docs-h2.corp.kuaishou.com/assets/vendors/github-drawio/src/main/webapp/vodka.index-test6.html/export3", {
+        const response = await fetch("https://embed.diagrams.net/export3", {
             method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
