@@ -10,7 +10,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-15.x-black)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 
-![FlowPilot Banner](./public/screenshots/banner.png)
+![FlowPilot Banner](./public/banner.png)
 
 </div>
 
