@@ -105,24 +105,5 @@ export function getDefaultEndpoints(): ModelEndpointConfig[] {
     const defaultModelId = nanoid(8);
 
     return [
-        {
-            id: defaultEndpointId,
-            name: "claude默认",
-            baseUrl: "https://www.linkflow.run/v1",
-            apiKey: "sk-32Pf7Im0oAkzVM5bCBDz9wtrS0OAP9tUD5gucO4U7SlEsOGG",
-            models: [
-                {
-                    id: defaultModelId,
-                    modelId: "claude-sonnet-4-5-20250929",
-                    label: "claude默认",
-                    description: undefined,
-                    isStreaming: false,
-                    createdAt: timestamp,
-                    updatedAt: timestamp,
-                }
-            ],
-            createdAt: timestamp,
-            updatedAt: timestamp,
-        }
     ];
 }
