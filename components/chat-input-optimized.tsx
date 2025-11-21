@@ -12,6 +12,8 @@ import {
     History,
     Sparkles,
     Settings,
+    Palette,
+    GitCompare,
 } from "lucide-react";
 import { ButtonWithTooltip } from "@/components/button-with-tooltip";
 import { FilePreviewList } from "@/components/file-preview-list";
@@ -42,6 +44,9 @@ interface ChatInputOptimizedProps {
     interactionLocked?: boolean;
     // 流式配置回调
     onModelStreamingChange?: (modelKey: string, isStreaming: boolean) => void;
+    renderMode?: "drawio" | "svg";
+    onRenderModeChange?: (mode: "drawio" | "svg") => void;
+    comparisonEnabled?: boolean;
 }
 
 export function ChatInputOptimized({
@@ -64,6 +69,9 @@ export function ChatInputOptimized({
     isCompareLoading = false,
     interactionLocked = false,
     onModelStreamingChange,
+    renderMode = "drawio",
+    onRenderModeChange,
+    comparisonEnabled = true,
 }: ChatInputOptimizedProps) {
     const { diagramHistory } = useDiagram();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -294,74 +302,118 @@ export function ChatInputOptimized({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                            <ModelSelector
-                                selectedModelKey={selectedModelKey}
-                                onModelChange={onModelChange}
-                                models={modelOptions}
-                                onManage={onManageModels}
-                                disabled={status === "streaming" || interactionLocked}
-                                onModelStreamingChange={onModelStreamingChange}
-                            />
-
                         <Button
                             type="button"
-                            variant="outline"
+                            variant={renderMode === "svg" ? "secondary" : "outline"}
                             size="sm"
-                            className="h-8 gap-1 rounded-full px-3 text-xs font-semibold text-slate-600 hover:text-slate-900"
-                            onClick={onOpenComparisonConfig}
+                            className="h-8 gap-1 rounded-full px-3 text-xs font-semibold"
+                            onClick={() =>
+                                onRenderModeChange?.(
+                                    renderMode === "svg" ? "drawio" : "svg"
+                                )
+                            }
                             disabled={status === "streaming" || interactionLocked}
                         >
-                            <Settings className="h-3.5 w-3.5" />
-                            对比设置
+                            <Palette className="h-3.5 w-3.5" />
+                            {renderMode === "svg" ? "SVG 渲染" : "draw.io 渲染"}
                         </Button>
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            className="h-8 gap-1 rounded-full bg-slate-900/10 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-900/20 disabled:opacity-60"
-                            disabled={
-                                status === "streaming" ||
-                                !input.trim() ||
-                                isCompareLoading ||
-                                interactionLocked
-                            }
-                            onClick={onCompareRequest}
-                            aria-label="使用当前提示词进行多模型对比"
-                        >
-                            {isCompareLoading ? (
-                                <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    正在生成…
-                                </>
-                            ) : (
-                                <>
-                                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                                    对比生成
-                                </>
-                            )}
-                        </Button>
-                        <Button
-                            type="submit"
-                            disabled={
-                                status === "streaming" ||
-                                !input.trim() ||
-                                interactionLocked
-                            }
-                            className="h-8 min-w-[88px] gap-2 rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
-                            size="sm"
-                            aria-label={
-                                status === "streaming"
-                                    ? "正在发送消息…"
-                                    : "发送消息"
-                            }
-                        >
-                            {status === "streaming" ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                                <Send className="h-4 w-4" />
-                            )}
-                            发送
-                        </Button>
+                        <ModelSelector
+                            selectedModelKey={selectedModelKey}
+                            onModelChange={onModelChange}
+                            models={modelOptions}
+                            onManage={onManageModels}
+                            disabled={status === "streaming" || interactionLocked}
+                            onModelStreamingChange={onModelStreamingChange}
+
+                        />
+                        {comparisonEnabled ? (
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
+
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        className="h-8 gap-1 rounded-none border-0 bg-slate-900/10 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-900/20 disabled:opacity-60"
+                                        disabled={
+                                            status === "streaming" ||
+                                            (!input.trim() && !isCompareLoading) ||
+                                            interactionLocked
+                                        }
+                                        onClick={onCompareRequest}
+                                        aria-label="使用当前提示词进行多模型对比"
+                                    >
+                                        {isCompareLoading ? (
+                                            <>
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                对比中…
+                                            </>
+                                        ) : (
+                                            <>
+                                                <GitCompare className="h-3.5 w-3.5" />
+                                                对比生成
+                                            </>
+                                        )}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 rounded-none border-r border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                        onClick={onOpenComparisonConfig}
+                                        disabled={status === "streaming" || interactionLocked}
+                                        aria-label="对比设置"
+                                    >
+                                        <Settings className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <Button
+                                    type="submit"
+                                    disabled={
+                                        status === "streaming" ||
+                                        !input.trim() ||
+                                        interactionLocked
+                                    }
+                                    className="h-8 min-w-[88px] gap-2 rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
+                                    size="sm"
+                                    aria-label={
+                                        status === "streaming"
+                                            ? "正在发送消息…"
+                                            : "发送消息"
+                                    }
+                                >
+                                    {status === "streaming" ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Send className="h-4 w-4" />
+                                    )}
+                                    发送
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button
+                                type="submit"
+                                disabled={
+                                    status === "streaming" ||
+                                    !input.trim() ||
+                                    interactionLocked
+                                }
+                                className="h-8 min-w-[88px] gap-2 rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
+                                size="sm"
+                                aria-label={
+                                    status === "streaming"
+                                        ? "正在发送消息…"
+                                        : "发送消息"
+                                }
+                            >
+                                {status === "streaming" ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Send className="h-4 w-4" />
+                                )}
+                                发送
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>

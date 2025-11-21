@@ -15,17 +15,25 @@ interface AttachmentInput {
     mediaType: string;
 }
 
-const comparisonSystemPrompt = `You are FlowPilot 的模型对比渲染器。
+const comparisonSystemPromptXml = `You are FlowPilot 的模型对比渲染器。
 你的任务是基于用户输入与当前 draw.io XML，在不依赖外部工具的情况下直接输出最新的 draw.io 图表 XML。
 请严格遵守以下要求：
 1. 总是返回 JSON 对象（使用 \`\`\`json 包裹），包含字段 summary（<=120 字中文描述差异点）与 xml（完整 draw.io XML 字符串）。
 2. xml 字段必须以 <mxfile 开始，包含 <mxGraphModel>，并控制所有节点坐标在 0-800 × 0-600 范围内。
 3. 不要添加任何额外解释、Markdown 或示例，只输出上述 JSON。`;
 
+const comparisonSystemPromptSvg = `You are FlowPilot 的模型对比渲染器（SVG 模式）。
+你的任务是基于用户输入与当前 draw.io XML，输出一份高清 SVG。
+请严格遵守以下要求：
+1. 总是返回 JSON 对象（使用 \`\`\`json 包裹），包含字段 summary（<=120 字中文描述差异点）与 svg（完整自包含 SVG 字符串）。如有需要，可附加 previewSvg 字段。
+2. SVG 画布控制在 0-800 × 0-600 范围内，留出至少 24px 边距，元素不重叠，文字不被遮挡，无 <script> 或事件属性。
+3. 不要添加任何额外解释、Markdown 或示例，只输出上述 JSON。`;
+
 function buildUserPrompt(
     prompt: string,
     xml: string,
-    brief?: string
+    brief?: string,
+    renderMode: "drawio" | "svg" = "drawio"
 ): string {
     const sections: string[] = [];
     if (brief && brief.trim().length > 0) {
@@ -43,10 +51,10 @@ ${xml ?? ""}
 ${sections.join("\n\n")}
 """
 
-请输出 JSON（字段：summary, xml），用于模型效果对比。`;
+请输出 JSON（字段：summary, ${renderMode === "svg" ? "svg" : "xml"}），用于模型效果对比。`;
 }
 
-function extractJsonPayload(text: string): { summary: string; xml: string } {
+function extractJsonPayload(text: string, renderMode: "drawio" | "svg"): { summary: string; xml?: string; svg?: string; previewSvg?: string } {
     const jsonBlockMatch = text.match(/```json([\s\S]*?)```/i);
     const jsonString = jsonBlockMatch
         ? jsonBlockMatch[1]
@@ -65,13 +73,23 @@ function extractJsonPayload(text: string): { summary: string; xml: string } {
         throw new Error("无法解析模型返回的 JSON 内容。");
     }
 
-    if (!parsed || typeof parsed.xml !== "string") {
+    const summary = typeof parsed.summary === "string" ? parsed.summary : "";
+    const xml = typeof parsed.xml === "string" ? parsed.xml : undefined;
+    const svg = typeof parsed.svg === "string" ? parsed.svg : undefined;
+    const previewSvg = typeof parsed.previewSvg === "string" ? parsed.previewSvg : undefined;
+
+    if (renderMode === "svg" && !svg) {
+        throw new Error("模型返回结果缺少 svg 字段。");
+    }
+    if (renderMode === "drawio" && !xml) {
         throw new Error("模型返回结果缺少 xml 字段。");
     }
 
     return {
-        summary: typeof parsed.summary === "string" ? parsed.summary : "",
-        xml: parsed.xml,
+        summary,
+        xml,
+        svg,
+        previewSvg,
     };
 }
 
@@ -127,12 +145,14 @@ export async function POST(req: Request) {
             xml,
             brief,
             attachments,
+            renderMode = "drawio",
         }: {
             models: Array<string | ComparisonModelInput>;
             prompt: string;
             xml: string;
             brief?: string;
             attachments?: AttachmentInput[];
+            renderMode?: "drawio" | "svg";
         } = await req.json();
         
         // 获取请求的 AbortSignal，用于取消请求（节省 token）
@@ -168,7 +188,15 @@ export async function POST(req: Request) {
             );
         }
 
-        const userPrompt = buildUserPrompt(prompt, xml ?? "", brief);
+        const mode: "drawio" | "svg" = renderMode === "svg" ? "svg" : "drawio";
+        const userPrompt = buildUserPrompt(prompt, xml ?? "", brief, mode);
+        const normalizedUserPrompt = userPrompt.trim();
+        if (!normalizedUserPrompt) {
+            return Response.json(
+                { error: "生成请求缺少有效提示词内容。" },
+                { status: 400 }
+            );
+        }
         const attachmentParts =
             attachments?.flatMap((file) =>
                 file?.url && file?.mediaType
@@ -189,7 +217,7 @@ export async function POST(req: Request) {
                     const resolved = resolveChatModel(model.runtime);
                     const response = await generateText({
                         model: resolved.model,
-                        system: comparisonSystemPrompt,
+                        system: mode === "svg" ? comparisonSystemPromptSvg : comparisonSystemPromptXml,
                         messages: [
                             {
                                 role: "user",
@@ -206,8 +234,8 @@ export async function POST(req: Request) {
                     const endTime = Date.now();
                     const durationMs = endTime - startTime;
 
-                    const payload = extractJsonPayload(response.text);
-                    const preview = await exportDiagramPreview(payload.xml);
+                    const payload = extractJsonPayload(response.text, mode);
+                    const preview = payload.xml ? await exportDiagramPreview(payload.xml) : {};
                     
                     // 获取 token 使用信息
                     const usage = response.usage;
@@ -219,6 +247,8 @@ export async function POST(req: Request) {
                         status: "ok" as const,
                         summary: payload.summary,
                         xml: payload.xml,
+                        svg: payload.svg,
+                        previewSvg: payload.previewSvg,
                         previewImage: preview.image,
                         // 添加 token 使用信息
                         usage: {

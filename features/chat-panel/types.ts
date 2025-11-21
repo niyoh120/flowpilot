@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { RuntimeModelConfig } from "@/types/model-config";
 
 export type ToolPanel = "brief" | "calibration" | "actions";
+export type DiagramRenderingMode = "drawio" | "svg";
 
 export interface ToolbarActionDefinition {
     label: string;
@@ -13,6 +14,13 @@ export interface DiagramUpdateMeta {
     origin: "display" | "edit";
     modelRuntime?: RuntimeModelConfig;
     toolCallId?: string;
+}
+
+export interface DiagramResultEntry {
+    xml: string;
+    svg?: string;
+    mode: DiagramRenderingMode;
+    runtime?: RuntimeModelConfig;
 }
 
 export type ComparisonNotice = {

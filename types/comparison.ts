@@ -26,6 +26,8 @@ export interface ComparisonCardResult {
     runtime?: RuntimeModelConfig;
     summary?: string;
     xml?: string;
+    svg?: string;
+    mode?: "drawio" | "svg";
     encodedXml?: string;
     previewSvg?: string;
     previewImage?: string;

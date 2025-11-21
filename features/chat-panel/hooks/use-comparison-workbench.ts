@@ -14,6 +14,7 @@ import type { ComparisonNotice } from "../types";
 import { serializeAttachments } from "../utils/attachments";
 import { cloneMessages } from "../utils/messages";
 import type { RuntimeModelOption } from "@/types/model-config";
+import { buildSvgRootXml } from "@/lib/svg";
 
 interface UseComparisonWorkbenchParams {
     activeBranchId: string;
@@ -31,6 +32,7 @@ interface UseComparisonWorkbenchParams {
     messages: Message[];
     modelOptions: RuntimeModelOption[];
     selectedModelKey?: string;
+    renderMode: "drawio" | "svg";
 }
 
 interface ActivePreview {
@@ -58,6 +60,7 @@ export function useComparisonWorkbench({
     messages,
     modelOptions,
     selectedModelKey,
+    renderMode,
 }: UseComparisonWorkbenchParams) {
     const initialModelKey = selectedModelKey ?? modelOptions[0]?.key ?? "";
     const [comparisonConfig, setComparisonConfig] =
@@ -405,6 +408,7 @@ export function useComparisonWorkbench({
             return modelsMeta.map((model, index) => {
                 const item = rawResults?.[index] ?? {};
                 const xml = ensureString(item?.xml);
+                const svg = ensureString(item?.svg);
                 const encodedXml = ensureString(
                     item?.encodedXml ?? item?.compressedXml ?? item?.raw
                 );
@@ -419,8 +423,21 @@ export function useComparisonWorkbench({
                 );
                 const rawId = ensureString(item?.id) ?? model.id;
                 const resultId = `${model.key}__${model.slot}`;
+                let resolvedXml = xml;
+                let mode: "drawio" | "svg" | undefined = "drawio";
+                if (!resolvedXml && svg) {
+                    try {
+                        const { rootXml } = buildSvgRootXml(svg);
+                        resolvedXml = rootXml;
+                        mode = "svg";
+                    } catch (error) {
+                        console.error("Failed to convert SVG to root XML:", error);
+                    }
+                } else if (svg) {
+                    mode = "svg";
+                }
                 const status: ComparisonResultStatus =
-                    item?.status === "error" || !xml ? "error" : "ok";
+                    item?.status === "error" || !resolvedXml ? "error" : "ok";
 
                 return {
                     id: resultId,
@@ -434,7 +451,9 @@ export function useComparisonWorkbench({
                         status === "ok" && ensureString(item?.summary)
                             ? ensureString(item?.summary)
                             : "",
-                    xml: status === "ok" ? xml : undefined,
+                    xml: status === "ok" ? resolvedXml : undefined,
+                    svg: status === "ok" ? svg : undefined,
+                    mode: status === "ok" ? mode : undefined,
                     encodedXml: status === "ok" ? encodedXml : undefined,
                     previewSvg: status === "ok" ? previewSvg : undefined,
                     previewImage: status === "ok" ? previewImage : undefined,
@@ -450,20 +469,35 @@ export function useComparisonWorkbench({
 
     const handleDownloadXml = useCallback(
         (result: ComparisonCardResult) => {
-            if (result.status !== "ok" || !result.xml) {
-                triggerComparisonNotice("error", "该模型没有可导出的 XML。");
+            if (result.status !== "ok") {
+                triggerComparisonNotice("error", "该模型没有可导出的结果。");
                 return;
             }
-            const blob = new Blob([formatXML(result.xml)], {
-                type: "application/xml",
-            });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = `${result.label ?? result.modelId}.xml`;
-            anchor.click();
-            URL.revokeObjectURL(url);
-            triggerComparisonNotice("success", "已导出 XML 文件。");
+            if (result.mode === "svg" && result.svg) {
+                const blob = new Blob([result.svg], { type: "image/svg+xml" });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = `${result.label ?? result.modelId}.svg`;
+                anchor.click();
+                URL.revokeObjectURL(url);
+                triggerComparisonNotice("success", "已导出 SVG 文件。");
+                return;
+            }
+            if (result.xml) {
+                const blob = new Blob([formatXML(result.xml)], {
+                    type: "application/xml",
+                });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = `${result.label ?? result.modelId}.xml`;
+                anchor.click();
+                URL.revokeObjectURL(url);
+                triggerComparisonNotice("success", "已导出 XML 文件。");
+                return;
+            }
+            triggerComparisonNotice("error", "该模型缺少可导出的 XML 或 SVG。");
         },
         [triggerComparisonNotice]
     );
@@ -476,13 +510,24 @@ export function useComparisonWorkbench({
                 return;
             }
 
-            if (result.status !== "ok" || !result.xml) {
-                triggerComparisonNotice("error", "该模型没有可应用的 XML 结果。");
+            if (result.status !== "ok" || (!result.xml && !result.svg)) {
+                triggerComparisonNotice("error", "该模型没有可应用的结果。");
                 return;
             }
 
-            // 边界检查：验证 XML 内容
-            const trimmedXml = result.xml.trim();
+            // 获取可用的 XML（若仅有 SVG 则先转换）
+            let finalXml = result.xml ?? "";
+            if (!finalXml && result.svg) {
+                try {
+                    const { rootXml } = buildSvgRootXml(result.svg);
+                    finalXml = rootXml;
+                } catch (error) {
+                    triggerComparisonNotice("error", "SVG 转换失败，无法应用结果。");
+                    return;
+                }
+            }
+
+            const trimmedXml = finalXml.trim();
             if (trimmedXml.length === 0) {
                 triggerComparisonNotice("error", "XML 内容为空，无法应用。");
                 return;
@@ -748,19 +793,20 @@ export function useComparisonWorkbench({
             const attachments =
                 files.length > 0 ? await serializeAttachments(files) : [];
 
-            const requestBody: Record<string, any> = {
-                models: modelsMeta.map((model) => ({
-                    id: model.id,
-                    key: model.key,
-                    label: model.label,
-                    provider: model.provider,
-                    slot: model.slot,
-                    runtime: model.runtime,
-                })),
-                prompt: enrichedInput,
-                xml: chartXml,
-                brief: briefContext.prompt,
-            };
+        const requestBody: Record<string, any> = {
+            models: modelsMeta.map((model) => ({
+                id: model.id,
+                key: model.key,
+                label: model.label,
+                provider: model.provider,
+                slot: model.slot,
+                runtime: model.runtime,
+            })),
+            prompt: enrichedInput,
+            xml: chartXml,
+            brief: briefContext.prompt,
+            renderMode,
+        };
 
             if (attachments.length > 0) {
                 requestBody.attachments = attachments;
@@ -802,7 +848,9 @@ export function useComparisonWorkbench({
                 branchId: bindings[result.id],
             }));
             const hasUsableBranch = normalizedResults.some(
-                (result) => result.status === "ok" && Boolean(result.xml)
+                (result) =>
+                    result.status === "ok" &&
+                    (Boolean(result.xml) || Boolean(result.svg))
             );
             if (!hasUsableBranch) {
                 setBranchDecisionRequirement(null);
@@ -894,6 +942,7 @@ export function useComparisonWorkbench({
         status,
         triggerComparisonNotice,
         updateComparisonEntry,
+        renderMode,
     ]);
 
     const handleRetryComparisonResult = useCallback(

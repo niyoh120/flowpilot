@@ -36,6 +36,7 @@ import { ChatMessageDisplay } from "./chat-message-display-optimized";
 import { useDiagram } from "@/contexts/diagram-context";
 import { useConversationManager } from "@/contexts/conversation-context";
 import { cn, formatXML, replaceXMLParts } from "@/lib/utils";
+import { buildSvgRootXml } from "@/lib/svg";
 import { SessionStatus } from "@/components/session-status";
 import { QuickActionBar } from "@/components/quick-action-bar";
 import type { QuickActionDefinition } from "@/components/quick-action-bar";
@@ -44,6 +45,7 @@ import {
     FlowPilotBriefLauncher,
     FlowPilotBriefDialog,
     FlowPilotBriefState,
+    DEFAULT_BRIEF_STATE,
     FOCUS_OPTIONS,
     GUARDRAIL_OPTIONS,
     INTENT_OPTIONS,
@@ -65,7 +67,7 @@ import {
 } from "@/features/chat-panel/constants";
 import { useComparisonWorkbench } from "@/features/chat-panel/hooks/use-comparison-workbench";
 import { useDiagramOrchestrator } from "@/features/chat-panel/hooks/use-diagram-orchestrator";
-import type { ToolPanel } from "@/features/chat-panel/types";
+import type { DiagramRenderingMode, DiagramResultEntry, ToolPanel } from "@/features/chat-panel/types";
 import { serializeAttachments } from "@/features/chat-panel/utils/attachments";
 import { useModelRegistry } from "@/hooks/use-model-registry";
 import { ModelConfigDialog } from "@/components/model-config-dialog";
@@ -167,13 +169,9 @@ export default function ChatPanelOptimized({
     const [files, setFiles] = useState<File[]>([]);
     const [showHistory, setShowHistory] = useState(false);
     const [input, setInput] = useState("");
-    const [briefState, setBriefState] = useState<FlowPilotBriefState>({
-        intent: "draft",
-        tone: "balanced",
-        focus: ["swimlane"],
-        diagramTypes: ["sequence", "activity"],
-        guardrails: ["singleViewport", "respectLabels"],
-    });
+    const [briefState, setBriefState] = useState<FlowPilotBriefState>(() => ({
+        ...DEFAULT_BRIEF_STATE,
+    }));
     const [commandTab, setCommandTab] = useState<"starter" | "report" | "showcase">(
         "starter"
     );
@@ -185,13 +183,14 @@ export default function ChatPanelOptimized({
         "idle"
     );
     const diagramResultsRef = useRef<
-        Map<string, { xml: string; runtime?: RuntimeModelConfig }>
+        Map<string, DiagramResultEntry>
     >(new Map());
     const [diagramResultVersion, setDiagramResultVersion] = useState(0);
     const getDiagramResult = useCallback(
         (toolCallId: string) => diagramResultsRef.current.get(toolCallId),
         []
     );
+    const [renderMode, setRenderMode] = useState<DiagramRenderingMode>("drawio");
 
     useEffect(() => {
         if (
@@ -311,6 +310,7 @@ export default function ChatPanelOptimized({
                         // 同时保存到 diagramResultsRef 供后续使用
                         diagramResultsRef.current.set(toolCall.toolCallId, {
                             xml,
+                            mode: "drawio",
                             runtime: selectedModel ?? undefined,
                         });
                         setDiagramResultVersion((prev) => prev + 1);
@@ -339,6 +339,54 @@ export default function ChatPanelOptimized({
                             tool: "display_diagram",
                             toolCallId: toolCall.toolCallId,
                             output: `Failed to display diagram: ${message}`,
+                        });
+                    }
+                } else if (toolCall.toolName === "display_svg") {
+                    const { svg } = toolCall.input as { svg?: string };
+                    try {
+                        if (!svg || typeof svg !== "string" || !svg.trim()) {
+                            throw new Error("大模型返回的 SVG 为空，无法渲染。");
+                        }
+
+                        const { rootXml } = buildSvgRootXml(svg);
+
+                        await handleDiagramXml(rootXml, {
+                            origin: "display",
+                            modelRuntime: selectedModel ?? undefined,
+                            toolCallId: toolCall.toolCallId,
+                        });
+
+                        const mergedXml = getLatestDiagramXml();
+                        diagramResultsRef.current.set(toolCall.toolCallId, {
+                            xml: mergedXml,
+                            svg,
+                            mode: "svg",
+                            runtime: selectedModel ?? undefined,
+                        });
+                        setDiagramResultVersion((prev) => prev + 1);
+
+                        if (toolCall.input && typeof toolCall.input === "object") {
+                            (toolCall.input as Record<string, unknown>).svgRef =
+                                toolCall.toolCallId;
+                            (toolCall.input as Record<string, unknown>).svgLength =
+                                svg.length;
+                            (toolCall.input as Record<string, unknown>).svg = undefined;
+                        }
+
+                        addToolResult({
+                            tool: "display_svg",
+                            toolCallId: toolCall.toolCallId,
+                            output: "SVG 已转换并渲染到画布。",
+                        });
+                    } catch (error) {
+                        const message =
+                            error instanceof Error
+                                ? error.message
+                                : "Failed to display SVG.";
+                        addToolResult({
+                            tool: "display_svg",
+                            toolCallId: toolCall.toolCallId,
+                            output: `Failed to display SVG: ${message}`,
                         });
                     }
                 } else if (toolCall.toolName === "edit_diagram") {
@@ -416,7 +464,9 @@ export default function ChatPanelOptimized({
         messages,
         modelOptions: modelOptions,
         selectedModelKey,
+        renderMode,
     });
+    const isComparisonAllowed = Boolean(selectedModel && !selectedModel.isStreaming);
 
     const handleCopyXml = useCallback(
         async (xml: string) => {
@@ -479,6 +529,7 @@ export default function ChatPanelOptimized({
             
             // 重新发送最后一条用户消息
             const chartXml = await onFetchChart();
+            const streamingFlag = renderMode === "svg" ? false : selectedModel?.isStreaming ?? false;
             
             sendMessage(
                 { parts: lastUserMessage.parts || [] },
@@ -486,14 +537,15 @@ export default function ChatPanelOptimized({
                     body: {
                         xml: chartXml,
                         modelRuntime: selectedModel,
-                        enableStreaming: selectedModel?.isStreaming ?? false,
+                        enableStreaming: streamingFlag,
+                        renderMode,
                     },
                 }
             );
         } catch (error) {
             console.error("重试生成失败：", error);
         }
-    }, [status, stop, messages, setMessages, sendMessage, onFetchChart, selectedModel]);
+    }, [status, stop, messages, setMessages, sendMessage, onFetchChart, selectedModel, renderMode]);
 
     const handleCopyWechat = useCallback(async () => {
         try {
@@ -587,6 +639,7 @@ export default function ChatPanelOptimized({
             }
             try {
                 let chartXml = await onFetchChart();
+                const streamingFlag = renderMode === "svg" ? false : selectedModel?.isStreaming ?? false;
 
                 const enrichedInput =
                     briefContext.prompt.length > 0
@@ -615,7 +668,8 @@ export default function ChatPanelOptimized({
                         body: {
                             xml: chartXml,
                             modelRuntime: selectedModel,
-                            enableStreaming: selectedModel?.isStreaming ?? false,
+                            enableStreaming: streamingFlag,
+                            renderMode,
                         },
                     }
                 );
@@ -636,6 +690,7 @@ export default function ChatPanelOptimized({
             sendMessage,
             selectedModel,
             setIsModelConfigOpen,
+            renderMode,
         ]
     );
 
@@ -660,6 +715,9 @@ export default function ChatPanelOptimized({
             setIsModelConfigOpen(true);
             throw new Error("请先配置可用模型后再执行校准。");
         }
+        if (renderMode === "svg") {
+            throw new Error("SVG 模式暂不支持校准，请切换回 draw.io XML 模式。");
+        }
 
         let chartXml = await onFetchChart();
 
@@ -675,6 +733,7 @@ export default function ChatPanelOptimized({
             "• 优化节点位置和间距\n" +
             "• 整理连接线路径\n" +
             "• 使用 edit_diagram 工具进行批量调整";
+        const streamingFlag = renderMode === "svg" ? false : selectedModel?.isStreaming ?? false;
 
         await sendMessage(
             {
@@ -690,7 +749,8 @@ export default function ChatPanelOptimized({
                 body: {
                     xml: chartXml,
                     modelRuntime: selectedModel,
-                    enableStreaming: selectedModel?.isStreaming ?? false,
+                    enableStreaming: streamingFlag,
+                    renderMode,
                 },
             }
         );
@@ -1244,7 +1304,11 @@ export default function ChatPanelOptimized({
                     onModelChange={selectModel}
                     onManageModels={() => setIsModelConfigOpen(true)}
                     onModelStreamingChange={handleModelStreamingChange}
+                    comparisonEnabled={isComparisonAllowed}
                     onCompareRequest={async () => {
+                        if (!isComparisonAllowed) {
+                            return;
+                        }
                         if (!input.trim()) {
                             return;
                         }
@@ -1289,9 +1353,14 @@ export default function ChatPanelOptimized({
                         setInput("");
                         setFiles([]);
                     }}
-                    onOpenComparisonConfig={() => setIsComparisonConfigOpen(true)}
+                    onOpenComparisonConfig={() => {
+                        if (!isComparisonAllowed) return;
+                        setIsComparisonConfigOpen(true);
+                    }}
                     isCompareLoading={isComparisonRunning}
                     interactionLocked={requiresBranchDecision || !selectedModel}
+                    renderMode={renderMode}
+                    onRenderModeChange={setRenderMode}
                 />
                 </div>
             </CardFooter>

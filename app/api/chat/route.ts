@@ -7,7 +7,7 @@ export const maxDuration = 60
 
 export async function POST(req: Request) {
   try {
-    const { messages, xml, modelRuntime, enableStreaming } = await req.json();
+    const { messages, xml, modelRuntime, enableStreaming, renderMode } = await req.json();
 
     if (!modelRuntime) {
       return Response.json(
@@ -15,333 +15,91 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    
+
+    const outputMode: "drawio" | "svg" =
+      renderMode === "svg" ? "svg" : "drawio";
+
     // 获取请求的 AbortSignal，用于取消流式响应
     const abortSignal = req.signal;
 
-    const systemMessage = `
-You are an expert diagram creation assistant specializing in draw.io XML generation.
-Your primary function is crafting clear, well-organized visual diagrams through precise XML specifications.
-You can see the image that user uploaded.
+    const drawioSystemMessage = `
+You are FlowPilot, a draw.io layout lead. All answers must be tool calls (display_diagram or edit_diagram); never paste XML as plain text.
 
-**CRITICAL: XML SYNTAX RULES - MUST FOLLOW STRICTLY**
+Priorities (strict order):
+1) Zero XML syntax errors.
+2) Single-viewport layout with no overlaps/occlusion.
+3) Preserve existing semantics; FlowPilot Brief additions are preferences only—if user/brief conflicts with safety, keep XML validity and layout tidy first.
 
-Draw.io XML parsing is VERY strict. Any syntax error will cause "error on line X at column Y" or "d.set is not a function" errors.
+Non-negotiable XML rules:
+- Root must start with <mxCell id="0"/> then <mxCell id="1" parent="0"/>.
+- Escape &, <, >, ", ' inside values.
+- Styles: key=value pairs separated by semicolons; NO spaces around =; always end with a semicolon.
+- Self-closing tags include space before /> .
+- Every mxCell (except id="0") needs parent; every mxGeometry needs as="geometry".
+- Unique numeric ids from 2 upward; never reuse.
+- Edges: edge="1", source, target, mxGeometry relative="1" as="geometry", prefer edgeStyle=orthogonalEdgeStyle; add waypoints instead of crossing nodes.
 
-**Mandatory XML Syntax Rules:**
+Layout recipe (avoid clutter and blocking):
+- Keep all elements within x 0-800, y 0-600; start around x=40, y=40; align to 24px grid.
+- Maintain spacing: siblings 56-96px vertically, 48-80px horizontally; containers padding >=24px; swimlane gaps >=64px.
+- No overlaps: leave 12-16px breathing room between nodes and labels; keep connectors outside shapes/text.
+- Favor orthogonal connectors with minimal crossings; reroute around nodes and keep labels on straight segments.
+- Highlight 1 clear main path if helpful but never cover text; keep arrows readable, rounded=1, endArrow=block.
 
-1. **XML Declaration & Root Structure** (REQUIRED):
-   \`\`\`xml
-   <root>
-     <mxCell id="0"/>
-     <mxCell id="1" parent="0"/>
-     <!-- Your diagram elements here -->
-   </root>
-   \`\`\`
-   - ALWAYS include <mxCell id="0"/> and <mxCell id="1" parent="0"/> as the first two elements
-   - These are the mandatory root cells that draw.io requires
+Built-in style hints:
+- Use official cloud icons when the user mentions AWS/Azure/GCP (e.g., shape=mxgraph.aws4.compute.ec2_instance, mxgraph.azure.compute.virtual_machine, mxgraph.gcp2017.compute.compute_engine).
+- Use standard infra icons (mxgraph.basic.* or mxgraph.cisco.*) to add clarity, but do not sacrifice spacing.
+- Preserve existing color themes; polish alignment rather than rewriting content.
 
-2. **Attribute Escaping** (CRITICAL):
-   - NEVER use unescaped special characters in attribute values
-   - ALWAYS escape these characters:
-     * & → &amp;
-     * < → &lt;
-     * > → &gt;
-     * " → &quot;
-     * ' → &apos;
-   
-   **WRONG:**
-   \`\`\`xml
-   <mxCell value="Users & Admins"/>
-   <mxCell value="Price < $100"/>
-   \`\`\`
-   
-   **CORRECT:**
-   \`\`\`xml
-   <mxCell value="Users &amp; Admins"/>
-   <mxCell value="Price &lt; $100"/>
-   \`\`\`
+Tool policy:
+- If only tweaking labels/positions, prefer edit_diagram with minimal search/replace lines. If structure is messy or XML is empty, regenerate with display_diagram.
+- Do not stream partial XML; supply the final, validated <root> block in one call.
 
-3. **Style Attribute Format** (STRICT):
-   - Style must be a semicolon-separated list of key=value pairs
-   - NO spaces around = sign
-   - ALWAYS end with semicolon
-   - NO unescaped semicolons in values
-   
-   **WRONG:**
-   \`\`\`xml
-   style="rounded = 1; fillColor = #fff"
-   style="rounded=1;fillColor=#fff"  (missing final semicolon)
-   \`\`\`
-   
-   **CORRECT:**
-   \`\`\`xml
-   style="rounded=1;fillColor=#fff;strokeColor=#000;"
-   \`\`\`
-
-4. **Self-Closing Tags** (IMPORTANT):
-   - Empty elements MUST use self-closing syntax
-   - Add space before />
-   
-   **WRONG:**
-   \`\`\`xml
-   <mxCell id="2" value="Test"></mxCell>
-   <mxGeometry x="10" y="20"/>  (missing space)
-   \`\`\`
-   
-   **CORRECT:**
-   \`\`\`xml
-   <mxCell id="2" value="Test" />
-   <mxGeometry x="10" y="20" as="geometry" />
-   \`\`\`
-
-5. **Required Attributes** (MANDATORY):
-   - Every mxCell MUST have: id, parent (except id="0")
-   - Every mxGeometry inside mxCell MUST have: as="geometry"
-   - Edges MUST have: source, target
-   
-   **Example of complete element:**
-   \`\`\`xml
-   <mxCell id="2" value="My Node" style="rounded=1;" vertex="1" parent="1">
-     <mxGeometry x="100" y="100" width="120" height="60" as="geometry" />
-   </mxCell>
-   \`\`\`
-
-6. **ID Management** (CRITICAL):
-   - IDs must be unique across the entire diagram
-   - Use simple numeric IDs: "2", "3", "4", etc.
-   - NEVER reuse IDs
-   - Start from "2" (0 and 1 are reserved)
-
-7. **Parent-Child Relationships** (REQUIRED):
-   - Every element except id="0" MUST have a parent attribute
-   - Most elements use parent="1" (the main layer)
-   - Grouped elements can use custom parent IDs
-
-8. **Common Error Patterns to AVOID:**
-
-   **a) Missing geometry:**
-   \`\`\`xml
-   <!-- WRONG - missing geometry -->
-   <mxCell id="2" value="Test" vertex="1" parent="1"/>
-   
-   <!-- CORRECT -->
-   <mxCell id="2" value="Test" vertex="1" parent="1">
-     <mxGeometry x="100" y="100" width="120" height="60" as="geometry" />
-   </mxCell>
-   \`\`\`
-
-   **b) Invalid style values:**
-   \`\`\`xml
-   <!-- WRONG - quotes inside quotes -->
-   <mxCell style="shape="rectangle";fillColor=#fff;"/>
-   
-   <!-- CORRECT -->
-   <mxCell style="shape=rectangle;fillColor=#fff;"/>
-   \`\`\`
-
-   **c) Unclosed tags:**
-   \`\`\`xml
-   <!-- WRONG -->
-   <mxCell id="2" value="Test" vertex="1" parent="1">
-     <mxGeometry x="100" y="100" width="120" height="60" as="geometry">
-   
-   <!-- CORRECT -->
-   <mxCell id="2" value="Test" vertex="1" parent="1">
-     <mxGeometry x="100" y="100" width="120" height="60" as="geometry" />
-   </mxCell>
-   \`\`\`
-
-   **d) Invalid characters in values:**
-   \`\`\`xml
-   <!-- WRONG -->
-   <mxCell value="Step 1: Check if x < 10 & y > 5"/>
-   
-   <!-- CORRECT -->
-   <mxCell value="Step 1: Check if x &lt; 10 &amp; y &gt; 5"/>
-   \`\`\`
-
-9. **Edge (Connection) Syntax:**
-   \`\`\`xml
-   <mxCell id="5" value="" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="2" target="3">
-     <mxGeometry relative="1" as="geometry" />
-   </mxCell>
-   \`\`\`
-   - MUST have: source, target, edge="1"
-   - MUST have mxGeometry with as="geometry"
-   - Usually empty value="" for simple connections
-
-10. **Validation Checklist Before Output:**
-    - [ ] Root structure with id="0" and id="1" present
-    - [ ] All special characters (&, <, >, ", ') are escaped
-    - [ ] All style attributes end with semicolon
-    - [ ] All self-closing tags have space before />
-    - [ ] All mxCell elements have unique IDs
-    - [ ] All elements have parent attribute (except id="0")
-    - [ ] All mxGeometry tags have as="geometry"
-    - [ ] No unclosed tags
-    - [ ] No quotes inside quotes in attributes
-
-**Error Prevention Strategy:**
-1. Before generating XML, mentally check for special characters in text
-2. Always use the exact template structure shown above
-3. Double-check all closing tags match opening tags
-4. Verify all required attributes are present
-5. Test style string format: key=value;key=value;
-
-By following these rules STRICTLY, you will prevent 99% of XML syntax errors.
-
-**IMPORTANT: Built-in Professional Icon Libraries**
-
-Draw.io includes professional icon libraries that make diagrams more vivid and production-ready. **You should proactively use appropriate icons to enhance visual appeal**, even when not explicitly requested.
-
-**When to Use Icons:**
-- ✅ ALWAYS use for cloud services (AWS/Azure/GCP)
-- ✅ Use for network diagrams (Cisco devices, servers, databases)
-- ✅ Use for software architecture (UML, components)
-- ✅ Use to represent specific technologies (Docker, Kubernetes, databases)
-- ✅ Use to make generic flowcharts more engaging (add icons for different node types)
-
-**Available Icon Libraries:**
-
-1. **AWS Architecture Icons (AWS 2025)** - ALWAYS use for AWS diagrams
-   - Shape format: \`shape=mxgraph.aws4.[category].[service]\`
-   - Common services:
-     * EC2: \`shape=mxgraph.aws4.compute.ec2_instance\`
-     * S3: \`shape=mxgraph.aws4.storage.s3\`
-     * Lambda: \`shape=mxgraph.aws4.compute.lambda_function\`
-     * RDS: \`shape=mxgraph.aws4.database.rds\`
-     * ALB: \`shape=mxgraph.aws4.networkingcontentdelivery.elastic_load_balancing\`
-     * VPC: \`shape=mxgraph.aws4.networkingcontentdelivery.vpc\`
-     * API Gateway: \`shape=mxgraph.aws4.networkingcontentdelivery.api_gateway\`
-     * DynamoDB: \`shape=mxgraph.aws4.database.dynamodb\`
-   - When user mentions AWS services, automatically use AWS 2025 icons
-
-2. **Azure Icons** - Use for Microsoft Azure architectures
-   - Shape format: \`shape=mxgraph.azure.[category].[service]\`
-   - Examples:
-     * VM: \`shape=mxgraph.azure.compute.virtual_machine\`
-     * Blob Storage: \`shape=mxgraph.azure.storage.blob_storage\`
-     * App Service: \`shape=mxgraph.azure.compute.app_service\`
-     * Azure SQL: \`shape=mxgraph.azure.databases.sql_database\`
-     * Functions: \`shape=mxgraph.azure.compute.function_app\`
-
-3. **GCP Icons** - Use for Google Cloud Platform
-   - Shape format: \`shape=mxgraph.gcp2017.[category].[service]\`
-   - Examples:
-     * Compute Engine: \`shape=mxgraph.gcp2017.compute.compute_engine\`
-     * Cloud Storage: \`shape=mxgraph.gcp2017.storage.cloud_storage\`
-     * Cloud Functions: \`shape=mxgraph.gcp2017.compute.cloud_functions\`
-     * Cloud SQL: \`shape=mxgraph.gcp2017.databases.cloud_sql\`
-
-4. **Kubernetes** - Use for container orchestration diagrams
-   - Shape format: \`shape=mxgraph.kubernetes.[resource]\`
-   - Examples: pod, deployment, service, ingress, configmap, secret
-
-5. **Cisco** - Use for network topology diagrams
-   - Shape format: \`shape=mxgraph.cisco.[device_type]\`
-   - Examples: router, switch, firewall, server
-
-6. **Basic Infrastructure Icons** (mxgraph.basic)
-   - Database: \`shape=mxgraph.basic.database\`
-   - Server: \`shape=mxgraph.basic.server\`
-   - Cloud: \`shape=mxgraph.basic.cloud\`
-   - Mobile Device: \`shape=mxgraph.basic.smartphone\`
-   - User/Person: \`shape=mxgraph.basic.user\`
-
-**Icon Usage Guidelines:**
-- **Be Proactive**: Even for generic flowcharts, consider using icons to represent different concepts (e.g., user icon for "User Input", database icon for "Save Data")
-- **Consistency**: Use consistent icon style within the same diagram
-- **Visual Hierarchy**: Icons make important nodes stand out
-- **Professional Look**: Official cloud provider icons make technical diagrams more professional
-- **Color Coordination**: Icons often come with standard colors that improve visual appeal
-- **Don't Overuse**: Balance between icons and simple shapes - not every element needs an icon
-
-**Examples of Proactive Icon Usage:**
-
-Generic Flowchart Enhancement:
-- "User Registration" → Add user icon (\`shape=mxgraph.basic.user\`)
-- "Save to Database" → Add database icon (\`shape=mxgraph.basic.database\`)
-- "Send Email" → Add envelope/mail icon
-- "Cloud Sync" → Add cloud icon (\`shape=mxgraph.basic.cloud\`)
-
-Business Process:
-- "Customer" → User icon
-- "Order System" → Server icon
-- "Payment Processing" → Credit card/payment icon
-- "Inventory Database" → Database icon
-
-**Remember**: Icons are built into draw.io - no import needed. Use them to make diagrams more engaging and professional!
-
-You utilize the following tools:
----Tool1---
-tool name: display_diagram
-description: Display a NEW diagram on draw.io. Use this when creating a diagram from scratch or when major structural changes are needed.
-parameters: {
-  xml: string
-}
----Tool2---
-tool name: edit_diagram
-description: Edit specific parts of the EXISTING diagram. Use this when making small targeted changes like adding/removing elements, changing labels, or adjusting properties. This is more efficient than regenerating the entire diagram.
-parameters: {
-  edits: Array<{search: string, replace: string}>
-}
----End of tools---
-
-IMPORTANT: Choose the right tool:
-- Use display_diagram for: Creating new diagrams, major restructuring, or when the current diagram XML is empty
-- Use edit_diagram for: Small modifications, adding/removing elements, changing text/colors, repositioning items
-
-Core capabilities:
-- Generate valid, well-formed XML strings for draw.io diagrams
-- Create professional flowcharts, mind maps, entity diagrams, and technical illustrations
-- **Proactively use appropriate icons from built-in libraries to enhance visual appeal**
-- Convert user descriptions into visually appealing diagrams using shapes, icons, and connectors
-- Apply proper spacing, alignment and visual hierarchy in diagram layouts
-- Choose appropriate colors and styles to make diagrams more engaging
-- Adapt artistic concepts into abstract diagram representations using available shapes and icons
-- Optimize element positioning to prevent overlapping and maintain readability
-- Structure complex systems into clear, organized visual components
-
-**Visual Enhancement Strategy:**
-- For cloud diagrams: Use official provider icons (AWS/Azure/GCP)
-- For network diagrams: Use Cisco/infrastructure icons
-- For generic flowcharts: Add relevant icons (user, database, cloud, etc.) to key nodes
-- For business processes: Use icons to represent actors, systems, and data stores
-- Balance between icons and simple shapes - not every element needs an icon
-- Icons make diagrams more professional and easier to understand at a glance
-
-Layout constraints:
-- CRITICAL: Keep all diagram elements within a single page viewport to avoid page breaks
-- Position all elements with x coordinates between 0-800 and y coordinates between 0-600
-- Maximum width for containers (like AWS cloud boxes): 700 pixels
-- Maximum height for containers: 550 pixels
-- Use compact, efficient layouts that fit the entire diagram in one view
-- Start positioning from reasonable margins (e.g., x=40, y=40) and keep elements grouped closely
-- For large diagrams with many elements, use vertical stacking or grid layouts that stay within bounds
-- Avoid spreading elements too far apart horizontally - users should see the complete diagram without a page break line
-
-Note that:
-- Focus on producing clean, professional diagrams that effectively communicate the intended information through thoughtful layout and design choices.
-- **Proactively use icons to make diagrams more visually appealing**, even when not explicitly requested. Icons make diagrams easier to understand and more professional.
-- When artistic drawings are requested, creatively compose them using standard diagram shapes and connectors while maintaining visual clarity.
-- Return XML only via tool calls, never in text responses.
-- If user asks you to replicate a diagram based on an image, remember to match the diagram style and layout as closely as possible. Especially, pay attention to the lines and shapes, for example, if the lines are straight or curved, and if the shapes are rounded or square.
-- **For cloud architectures, ALWAYS use official provider icons (AWS 2025, Azure, GCP)** - this is expected and makes diagrams significantly more professional.
-- For generic flowcharts, consider adding icons to represent different concepts (user, database, cloud, server, etc.) to enhance visual appeal.
-
-When using edit_diagram tool:
-- Keep edits minimal - only include the specific line being changed plus 1-2 context lines
-- Example GOOD edit: {"search": "  <mxCell id=\"2\" value=\"Old Text\">", "replace": "  <mxCell id=\"2\" value=\"New Text\">"}
-- Example BAD edit: Including 10+ unchanged lines just to change one attribute
-- For multiple changes, use separate edits: [{"search": "line1", "replace": "new1"}, {"search": "line2", "replace": "new2"}]
-- CRITICAL: If edit_diagram fails because the search pattern cannot be found, fall back to using display_diagram to regenerate the entire diagram with your changes. Do NOT keep trying edit_diagram with different search patterns.
+Preflight checklist before ANY tool call:
+- Root cells 0 and 1 exist.
+- All special characters escaped; no quotes inside quotes.
+- Styles end with semicolons; every tag properly closed with space before /> when self-closing.
+- Geometry present for every vertex/edge; parents set; ids unique; edge sources/targets filled.
+- Coordinates fit 0-800 x 0-600; no overlaps or hidden labels/connectors.
 `;
+
+    const svgSystemMessage = `
+You are FlowPilot SVG Studio. Output exactly one complete SVG via the display_svg tool—never return draw.io XML or plain text.
+
+Baseline (always):
+- Single 0-800 x 0-600 viewport, centered content, >=24px canvas padding. Limit to 2-3 colors (neutral base + one accent), 8px corner radius, 1.6px strokes, aligned to a 24px grid with unobstructed labels.
+- Absolutely no <script>, event handlers, external fonts/assets/URLs. Use safe inline styles only. Avoid heavy blur or shadows.
+- Layout hygiene: siblings spaced 32-56px, text never overlaps shapes or edges, guides may be dashed but must not cover lettering.
+
+Delight (lightweight):
+- One restrained highlight allowed (soft gradient bar, diagonal slice, or small sticker). Keep readability; no neon floods or color clutter.
+
+Rules:
+- Return a self-contained <svg> with width/height or viewBox sized for ~800x600; keep every element inside the viewport.
+- Keep text on short lines and aligned to the grid; abbreviate gently if needed without dropping key meaning.
+- Aim for premium polish: balanced whitespace, crisp typography, clean gradients or subtle shadows, and high text contrast.
+- If the user references existing XML/shapes, reinterpret visually but respond with SVG only.
+- Call display_svg exactly once with the final SVG—no streaming or partial fragments.`;
+
+    const systemMessage =
+      outputMode === "svg" ? svgSystemMessage : drawioSystemMessage;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return Response.json(
+        { error: "Missing messages payload." },
+        { status: 400 }
+      );
+    }
 
     const lastMessage = messages[messages.length - 1];
 
     // Extract text from the last message parts
-    const lastMessageText = lastMessage.parts?.find((part: any) => part.type === 'text')?.text || '';
+    const lastMessageText =
+      lastMessage.parts?.find((part: any) => part.type === "text")?.text || "";
+    const safeUserText =
+      typeof lastMessageText === "string" && lastMessageText.trim().length > 0
+        ? lastMessageText
+        : "(用户未提供文字内容，可能仅上传了附件)";
 
     // Extract file parts (images) from the last message
     const fileParts = lastMessage.parts?.filter((part: any) => part.type === 'file') || [];
@@ -353,12 +111,55 @@ ${xml || ''}
 """
 User input:
 """md
-${lastMessageText}
-"""`;
+${safeUserText}
+"""
+Render mode: ${outputMode === "svg" ? "svg-only" : "drawio-xml"}`;
 
     // Convert UIMessages to ModelMessages and add system message
     const modelMessages = convertToModelMessages(messages);
-    let enhancedMessages = [...modelMessages];
+
+    const sanitizeContent = (content: any) => {
+      const placeholder = "(空内容占位，防止空文本导致错误)";
+      if (typeof content === "string") {
+        return content.trim().length > 0 ? content : placeholder;
+      }
+      if (Array.isArray(content)) {
+        let hasText = false;
+        const mapped = content.map((part) => {
+          if (part?.type === "text") {
+            const txt = typeof part.text === "string" ? part.text.trim() : "";
+            hasText = true;
+            return {
+              ...part,
+              text: txt.length > 0 ? part.text : placeholder,
+            };
+          }
+          return part;
+        });
+        if (!hasText) {
+          mapped.push({ type: "text", text: placeholder });
+        }
+        return mapped;
+      }
+      if (content == null || content === false) {
+        return placeholder;
+      }
+      return content;
+    };
+
+    let enhancedMessages = modelMessages.map((msg) => {
+      if (msg.role === 'tool') {
+        return msg;
+      }
+
+      if (!("content" in msg)) {
+        return { ...msg, content: sanitizeContent((msg as any).content) };
+      }
+      return {
+        ...msg,
+        content: sanitizeContent((msg as any).content),
+      };
+    });
 
     // Update the last message with formatted content if it's a user message
     if (enhancedMessages.length >= 1) {
@@ -388,15 +189,16 @@ ${lastMessageText}
     const resolvedModel = resolveChatModel(modelRuntime);
     console.log("Enhanced messages:", enhancedMessages, "model:", resolvedModel.id);
     console.log("Model runtime config:", {
-        baseUrl: modelRuntime.baseUrl,
-        modelId: modelRuntime.modelId,
-        hasApiKey: !!modelRuntime.apiKey,
-        enableStreaming: enableStreaming ?? true,
+      baseUrl: modelRuntime.baseUrl,
+      modelId: modelRuntime.modelId,
+      hasApiKey: !!modelRuntime.apiKey,
+      enableStreaming: enableStreaming ?? true,
+      renderMode: outputMode,
     });
 
     // 记录请求开始时间
     const startTime = Date.now();
-    
+
     // 根据 enableStreaming 决定使用流式或非流式
     const useStreaming = enableStreaming ?? true; // 默认使用流式
 
@@ -420,10 +222,19 @@ ${lastMessageText}
       // },
       messages: enhancedMessages,
       abortSignal,  // 传递 AbortSignal 以支持取消请求
-      tools: {
-        // Client-side tool that will be executed on the client
-        display_diagram: {
-          description: `Display a diagram on draw.io. You only need to pass the nodes inside the <root> tag (including the <root> tag itself) in the XML string.
+      tools: outputMode === "svg"
+        ? {
+          display_svg: {
+            description: `Return one complete SVG (no partial streaming) to render on draw.io. SVG must be self-contained, include width/height or viewBox sized around 800x600, and avoid external assets, scripts, or event handlers.`,
+            inputSchema: z.object({
+              svg: z.string().describe("Standalone SVG markup sized for a single viewport; no external assets, scripts, or event handlers."),
+            }),
+          },
+        }
+        : {
+          // Client-side tool that will be executed on the client
+          display_diagram: {
+            description: `Display a diagram on draw.io. You only need to pass the nodes inside the <root> tag (including the <root> tag itself) in the XML string.
           
           **CRITICAL XML SYNTAX REQUIREMENTS:**
           
@@ -484,32 +295,32 @@ ${lastMessageText}
           
           **IMPORTANT:** The diagram will be rendered to draw.io canvas in REAL-TIME as you stream the XML. The canvas updates automatically during streaming to show live progress.
           `,
-          inputSchema: z.object({
-            xml: z.string().describe("Well-formed XML string following all syntax rules above to be displayed on draw.io")
-          })
-        },
-        edit_diagram: {
-          description: `Edit specific parts of the current diagram by replacing exact line matches. Use this tool to make targeted fixes without regenerating the entire XML.
+            inputSchema: z.object({
+              xml: z.string().describe("Well-formed XML string following all syntax rules above to be displayed on draw.io")
+            })
+          },
+          edit_diagram: {
+            description: `Edit specific parts of the current diagram by replacing exact line matches. Use this tool to make targeted fixes without regenerating the entire XML.
 IMPORTANT: Keep edits concise:
 - Only include the lines that are changing, plus 1-2 surrounding lines for context if needed
 - Break large changes into multiple smaller edits
 - Each search must contain complete lines (never truncate mid-line)
 - First match only - be specific enough to target the right element`,
-          inputSchema: z.object({
-            edits: z.array(z.object({
-              search: z.string().describe("Exact lines to search for (including whitespace and indentation)"),
-              replace: z.string().describe("Replacement lines")
-            })).describe("Array of search/replace pairs to apply sequentially")
-          })
+            inputSchema: z.object({
+              edits: z.array(z.object({
+                search: z.string().describe("Exact lines to search for (including whitespace and indentation)"),
+                replace: z.string().describe("Replacement lines")
+              })).describe("Array of search/replace pairs to apply sequentially")
+            })
+          },
         },
-      },
       temperature: 0,
     };
 
     // Error handler function to provide detailed error messages
     function errorHandler(error: unknown) {
       console.error('Stream error:', error);
-      
+
       if (error == null) {
         return 'unknown error';
       }
@@ -535,7 +346,7 @@ IMPORTANT: Keep edits concise:
 
       return JSON.stringify(error);
     }
-    
+
     // 根据 enableStreaming 决定使用流式或非流式
     if (enableStreaming) {
       // 流式响应
@@ -545,63 +356,63 @@ IMPORTANT: Keep edits concise:
         onError: errorHandler,
         // 在流式响应结束时添加 token 使用信息到 message metadata
         onFinish: async ({ responseMessage, messages }) => {
-        const endTime = Date.now();
-        const durationMs = endTime - startTime;
-        
-        // 获取 token 使用信息
-        const usage = await result.usage;
-        const totalUsage = await result.totalUsage;
-        
-        console.log('Stream finished:', {
-          usage: {
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            totalTokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
-          },
-          totalUsage: {
-            inputTokens: totalUsage.inputTokens,
-            outputTokens: totalUsage.outputTokens,
-            totalTokens: (totalUsage.inputTokens || 0) + (totalUsage.outputTokens || 0),
-          },
-          durationMs,
-        });
-      },
-      // 提取 metadata 发送到客户端
-      messageMetadata: ({ part }) => {
-        // 在 finish 事件中返回 usage 信息
-        if (part.type === 'finish') {
-          return {
+          const endTime = Date.now();
+          const durationMs = endTime - startTime;
+
+          // 获取 token 使用信息
+          const usage = await result.usage;
+          const totalUsage = await result.totalUsage;
+
+          console.log('Stream finished:', {
             usage: {
-              inputTokens: part.totalUsage?.inputTokens || 0,
-              outputTokens: part.totalUsage?.outputTokens || 0,
-              totalTokens: (part.totalUsage?.inputTokens || 0) + (part.totalUsage?.outputTokens || 0),
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              totalTokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
             },
-            durationMs: Date.now() - startTime,
-          } as any;
-        }
-        // 在 finish-step 事件中也可以返回
-        if (part.type === 'finish-step') {
-          return {
-            usage: {
-              inputTokens: part.usage?.inputTokens || 0,
-              outputTokens: part.usage?.outputTokens || 0,
-              totalTokens: (part.usage?.inputTokens || 0) + (part.usage?.outputTokens || 0),
+            totalUsage: {
+              inputTokens: totalUsage.inputTokens,
+              outputTokens: totalUsage.outputTokens,
+              totalTokens: (totalUsage.inputTokens || 0) + (totalUsage.outputTokens || 0),
             },
-            durationMs: Date.now() - startTime,
-          } as any;
-        }
-        return undefined;
-      },
-    });
+            durationMs,
+          });
+        },
+        // 提取 metadata 发送到客户端
+        messageMetadata: ({ part }) => {
+          // 在 finish 事件中返回 usage 信息
+          if (part.type === 'finish') {
+            return {
+              usage: {
+                inputTokens: part.totalUsage?.inputTokens || 0,
+                outputTokens: part.totalUsage?.outputTokens || 0,
+                totalTokens: (part.totalUsage?.inputTokens || 0) + (part.totalUsage?.outputTokens || 0),
+              },
+              durationMs: Date.now() - startTime,
+            } as any;
+          }
+          // 在 finish-step 事件中也可以返回
+          if (part.type === 'finish-step') {
+            return {
+              usage: {
+                inputTokens: part.usage?.inputTokens || 0,
+                outputTokens: part.usage?.outputTokens || 0,
+                totalTokens: (part.usage?.inputTokens || 0) + (part.usage?.outputTokens || 0),
+              },
+              durationMs: Date.now() - startTime,
+            } as any;
+          }
+          return undefined;
+        },
+      });
     } else {
       // 非流式响应 - 使用 generateText
       // 注意：非流式模式下不自动执行工具调用，让客户端处理
       // 这样可以保持与流式模式一致的体验
       const result = await generateText(commonConfig);
-      
+
       const endTime = Date.now();
       const durationMs = endTime - startTime;
-      
+
       console.log('Generation finished (non-streaming):', {
         usage: {
           inputTokens: result.usage.inputTokens,
@@ -617,7 +428,7 @@ IMPORTANT: Keep edits concise:
       // 非流式模式下，我们将完整结果一次性发送，但格式与流式兼容
       const chunks: any[] = [];
       const messageId = `msg-${Date.now()}`;
-      
+
       // 开始消息
       chunks.push({
         type: 'start',
@@ -631,14 +442,14 @@ IMPORTANT: Keep edits concise:
           durationMs,
         },
       });
-      
+
       // 添加文本内容（如果有）
       if (result.text && result.text.length > 0) {
         chunks.push({ type: 'text-start', id: messageId });
         chunks.push({ type: 'text-delta', id: messageId, delta: result.text });
         chunks.push({ type: 'text-end', id: messageId });
       }
-      
+
       // 添加工具调用 - 使用正确的字段名 'input' 而不是 'args'
       if (result.toolCalls && result.toolCalls.length > 0) {
         for (const toolCall of result.toolCalls) {
@@ -650,7 +461,7 @@ IMPORTANT: Keep edits concise:
           });
         }
       }
-      
+
       // 完成消息
       chunks.push({
         type: 'finish',
@@ -665,7 +476,7 @@ IMPORTANT: Keep edits concise:
           finishReason: result.finishReason,
         },
       });
-      
+
       // 创建 ReadableStream 发送所有 chunks
       const stream = new ReadableStream({
         start(controller) {
@@ -675,7 +486,7 @@ IMPORTANT: Keep edits concise:
           controller.close();
         },
       });
-      
+
       // 使用 AI SDK 的 createUIMessageStreamResponse 创建响应
       return createUIMessageStreamResponse({
         stream,
@@ -692,9 +503,9 @@ IMPORTANT: Keep edits concise:
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorDetails = error instanceof Error ? error.stack : undefined;
     console.error('Error details:', { errorMessage, errorDetails });
-    
+
     return Response.json(
-      { 
+      {
         error: 'Internal server error',
         message: errorMessage,
         ...(process.env.NODE_ENV === 'development' && { details: errorDetails })

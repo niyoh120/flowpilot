@@ -2,18 +2,18 @@
 
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
-import type { RuntimeModelConfig } from "@/types/model-config";
 import Image from "next/image";
-import {Button} from "@/components/ui/button";
-import {cn, convertToLegalXml} from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { cn, convertToLegalXml } from "@/lib/utils";
 import { svgToDataUrl } from "@/lib/svg";
 import ExamplePanel from "./chat-example-panel";
-import {UIMessage} from "ai";
+import { UIMessage } from "ai";
 import {
     ComparisonCardResult,
     ComparisonHistoryEntry,
 } from "@/types/comparison";
 import { TokenUsageDisplay } from "./token-usage-display";
+import type { DiagramResultEntry } from "@/features/chat-panel/types";
 
 const LARGE_TOOL_INPUT_CHAR_THRESHOLD = 3000;
 const CHAR_COUNT_FORMATTER = new Intl.NumberFormat("zh-CN");
@@ -54,12 +54,12 @@ interface ChatMessageDisplayProps {
     diagramResultVersion?: number;
     getDiagramResult?: (
         toolCallId: string
-    ) => { xml: string; runtime?: RuntimeModelConfig } | undefined;
+    ) => DiagramResultEntry | undefined;
 }
 
 // 优化：使用 memo 避免不必要的重渲染
-const DiagramToolCard = memo(({ 
-    part, 
+const DiagramToolCard = memo(({
+    part,
     onCopy,
     onStopAll,
     isGenerationBusy,
@@ -74,7 +74,7 @@ const DiagramToolCard = memo(({
     onStopAll?: () => void;
     isGenerationBusy?: boolean;
     isComparisonRunning?: boolean;
-    diagramResult?: { xml: string; runtime?: RuntimeModelConfig };
+    diagramResult?: DiagramResultEntry;
     onStreamingApply?: (xml: string, callId: string) => void;
     onRetry?: () => void;
     messageMetadata?: {
@@ -88,7 +88,8 @@ const DiagramToolCard = memo(({
 }) => {
     const callId = part.toolCallId;
     const { state, input, output } = part;
-    const [isCopied, setIsCopied] = useState(false);
+    const toolName = (part.type?.replace("tool-", "") as string) || "display_diagram";
+    const [copiedKind, setCopiedKind] = useState<"xml" | "svg" | null>(null);
     const [toolCallError, setToolCallError] = useState<string | null>(null);
     const previousXmlRef = useRef<string>("");
     const [localState, setLocalState] = useState<string>(state || "pending");
@@ -96,10 +97,10 @@ const DiagramToolCard = memo(({
     const [showTimeoutHint, setShowTimeoutHint] = useState(false);
     const streamingStartTimeRef = useRef<number | null>(null);
 
-    const displayDiagramXml = diagramResult?.xml || 
+    const diagramMode: "drawio" | "svg" = diagramResult?.mode ?? (toolName === "display_svg" ? "svg" : "drawio");
+    const displaySvg = diagramResult?.svg || (typeof input?.svg === "string" ? input.svg : null);
+    const displayDiagramXml = diagramResult?.xml ||
         (typeof input?.xml === "string" ? input.xml : null);
-    const displayDiagramXmlLength = displayDiagramXml?.length ?? 0;
-
     // 同步外部状态
     useEffect(() => {
         if (state) {
@@ -141,7 +142,7 @@ const DiagramToolCard = memo(({
     // 自动将状态更新为 output-available，避免因 token 限制导致的状态卡死
     useEffect(() => {
         if (
-            !isGenerationBusy && 
+            !isGenerationBusy &&
             !isComparisonRunning &&
             localState === "input-streaming" &&
             displayDiagramXml &&
@@ -156,22 +157,30 @@ const DiagramToolCard = memo(({
     // 流式渲染：在streaming状态下实时应用图表
     useEffect(() => {
         if (
-            localState === "input-streaming" && 
-            displayDiagramXml && 
+            diagramMode !== "svg" &&
+            localState === "input-streaming" &&
+            displayDiagramXml &&
             displayDiagramXml !== previousXmlRef.current &&
             onStreamingApply
         ) {
             previousXmlRef.current = displayDiagramXml;
             onStreamingApply(displayDiagramXml, callId);
         }
-    }, [localState, displayDiagramXml, callId, onStreamingApply]);
+    }, [diagramMode, localState, displayDiagramXml, callId, onStreamingApply]);
 
     const handleCopyClick = useCallback(async () => {
         if (!displayDiagramXml) return;
         await onCopy(displayDiagramXml, callId);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000);
+        setCopiedKind("xml");
+        setTimeout(() => setCopiedKind(null), 2000);
     }, [displayDiagramXml, callId, onCopy]);
+
+    const handleCopySvgClick = useCallback(async () => {
+        if (!displaySvg) return;
+        await onCopy(displaySvg, callId);
+        setCopiedKind("svg");
+        setTimeout(() => setCopiedKind(null), 2000);
+    }, [displaySvg, callId, onCopy]);
 
     const handleStopClick = useCallback(() => {
         if (onStopAll) {
@@ -202,30 +211,30 @@ const DiagramToolCard = memo(({
     const currentState = localState || state;
 
     const statusLabel = currentState === "output-available"
-            ? "已完成"
-            : currentState === "output-error"
-                ? "生成失败"
-                : currentState === "input-streaming"
-                    ? "生成中"
-                    : currentState === "stopped"
-                        ? "已暂停"
+        ? "已完成"
+        : currentState === "output-error"
+            ? "生成失败"
+            : currentState === "input-streaming"
+                ? "生成中"
+                : currentState === "stopped"
+                    ? "已暂停"
                     : currentState || "等待中";
 
     const statusClass = cn(
         "rounded-full border px-2 py-0.5 text-[11px] font-medium",
         currentState === "output-available" &&
-            "border-emerald-200 bg-emerald-50 text-emerald-700",
+        "border-emerald-200 bg-emerald-50 text-emerald-700",
         (currentState === "output-error" || toolCallError) &&
-            "border-red-200 bg-red-50 text-red-700",
+        "border-red-200 bg-red-50 text-red-700",
         currentState === "input-streaming" &&
-            "border-blue-200 bg-blue-50 text-blue-700",
+        "border-blue-200 bg-blue-50 text-blue-700",
         currentState === "stopped" &&
-            "border-amber-200 bg-amber-50 text-amber-700",
+        "border-amber-200 bg-amber-50 text-amber-700",
         currentState !== "output-available" &&
-            currentState !== "output-error" &&
-            currentState !== "input-streaming" &&
-            currentState !== "stopped" &&
-            "border-slate-200 bg-slate-50 text-slate-500"
+        currentState !== "output-error" &&
+        currentState !== "input-streaming" &&
+        currentState !== "stopped" &&
+        "border-slate-200 bg-slate-50 text-slate-500"
     );
 
     const statusMessage = (() => {
@@ -258,7 +267,10 @@ const DiagramToolCard = memo(({
                         智能图表结果
                     </div>
                     <div className="text-[10px] text-slate-400">
-                        工具：display_diagram
+                        工具：{toolName}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                        输出：{diagramMode === "svg" ? "SVG 嵌入" : "draw.io XML"}
                     </div>
                 </div>
                 <span className={statusClass}>{statusLabel}</span>
@@ -266,6 +278,29 @@ const DiagramToolCard = memo(({
             <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-[13px] leading-relaxed text-slate-700">
                 {statusMessage}
             </div>
+            {diagramMode === "svg" && currentState === "output-available" && displaySvg && (
+                <div className="mt-3 rounded-lg border border-slate-100 bg-white/90 p-2">
+                    <div className="text-[11px] font-semibold text-slate-500 mb-1">
+                        SVG 预览
+                    </div>
+                    <div className="relative h-48 w-full overflow-hidden rounded-lg bg-slate-50">
+                        {svgToDataUrl(displaySvg) ? (
+                            <Image
+                                src={svgToDataUrl(displaySvg)!}
+                                alt={`svg-preview-${callId}`}
+                                fill
+                                className="object-contain"
+                                sizes="(max-width: 768px) 100vw, 320px"
+                                unoptimized
+                            />
+                        ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-400">
+                                预览转换失败
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             {/* 超时提示 */}
             {showTimeoutHint && currentState === "input-streaming" && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -298,13 +333,22 @@ const DiagramToolCard = memo(({
                         重新生成
                     </button>
                 )}
-                {displayDiagramXml && (
+                {displayDiagramXml && diagramMode === "drawio" && (
                     <button
                         type="button"
                         onClick={handleCopyClick}
                         className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
                     >
-                        {isCopied ? "已复制 XML" : "复制 XML"}
+                        {copiedKind === "xml" ? "已复制 XML" : "复制 XML"}
+                    </button>
+                )}
+                {displaySvg && (
+                    <button
+                        type="button"
+                        onClick={handleCopySvgClick}
+                        className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
+                    >
+                        {copiedKind === "svg" ? "已复制 SVG" : "复制 SVG"}
                     </button>
                 )}
                 {currentState === "input-streaming" && onStopAll && (
@@ -382,7 +426,7 @@ export function ChatMessageDisplay({
         }
         // 流式渲染时需要先转换为合法的XML（处理不完整的标签）
         const convertedXml = convertToLegalXml(xml);
-        
+
         // 在streaming状态下直接应用，不使用async/await避免阻塞
         const result = onDisplayDiagram(convertedXml, { toolCallId });
         if (result && typeof result.catch === 'function') {
@@ -394,11 +438,13 @@ export function ChatMessageDisplay({
 
     // 优化：使用 useMemo 缓存计算结果
     const diagramResults = useMemo(() => {
-        const results = new Map<string, { xml: string; runtime?: RuntimeModelConfig }>();
+        const results = new Map<string, DiagramResultEntry>();
         messages.forEach((message) => {
             if (!message.parts) return;
             message.parts.forEach((part: any) => {
-                if (part.type !== "tool-display_diagram") return;
+                if (typeof part.type !== "string") return;
+                const toolName = part.type.replace("tool-", "");
+                if (toolName !== "display_diagram" && toolName !== "display_svg") return;
                 const toolCallId = part.toolCallId;
                 if (!toolCallId) return;
                 const result = getDiagramResult?.(toolCallId);
@@ -409,6 +455,18 @@ export function ChatMessageDisplay({
         });
         return results;
     }, [messages, getDiagramResult, diagramResultVersion]);
+
+    // 是否已有工具卡片负责展示生成状态（用于隐藏额外的“正在绘制中…”提示）
+    const hasLiveToolCard = useMemo(() => {
+        return messages.some((message) =>
+            message.parts?.some((part: any) => {
+                if (typeof part?.type !== "string") return false;
+                if (!part.type.startsWith("tool-")) return false;
+                const state = part.state;
+                return state === "input-streaming" || state === "pending" || state === "required";
+            })
+        );
+    }, [messages]);
 
     // 优化：简化复制函数
     const handleCopyDiagramXml = useCallback(async (xml: string, toolCallId: string) => {
@@ -422,7 +480,21 @@ export function ChatMessageDisplay({
 
     useEffect(() => {
         if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({behavior: "smooth"});
+            // Manually find the scrollable container to avoid window scrolling
+            let parent = messagesEndRef.current.parentElement;
+            while (parent) {
+                const style = window.getComputedStyle(parent);
+                if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                    parent.scrollTo({
+                        top: parent.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                    return;
+                }
+                parent = parent.parentElement;
+            }
+            // Fallback
+            messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }
     }, [messages]);
 
@@ -487,7 +559,7 @@ export function ChatMessageDisplay({
         const callId = part.toolCallId;
         const { state, input, output } = part;
         const toolName = part.type?.replace("tool-", "");
-        const isDisplayDiagramTool = toolName === "display_diagram";
+        const isDisplayDiagramTool = toolName === "display_diagram" || toolName === "display_svg";
 
         if (isDisplayDiagramTool) {
             const diagramResult = diagramResults.get(callId);
@@ -520,7 +592,7 @@ export function ChatMessageDisplay({
 
         const renderInputContent = () => {
             if (!input || !isExpanded) return null;
-            
+
             if (
                 toolName === "edit_diagram" &&
                 Array.isArray(input?.edits) &&
@@ -561,7 +633,7 @@ export function ChatMessageDisplay({
                     </div>
                 );
             }
-            
+
             const serialized =
                 typeof input === "string"
                     ? input
@@ -643,7 +715,7 @@ export function ChatMessageDisplay({
         const isCancelled = entry.status === "cancelled";
         const hasSuccessfulResults = entry.results.some(result => result.status === "ok");
         const isWaitingForSelection = !isEntryLoading && !isCancelled && hasSuccessfulResults && !entry.adoptedResultId;
-        
+
         const successfulResults = entry.results.filter(result => result.status === "ok" && result.branchId);
         const currentResultIndex = successfulResults.findIndex(result => result.id === entry.adoptedResultId);
         const hasMultipleOptions = successfulResults.length > 1;
@@ -666,63 +738,63 @@ export function ChatMessageDisplay({
                             )}
                             {isEntryLoading && (
                                 <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
-                                    <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400"/>
+                                    <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
                                     正在生成…
                                 </div>
                             )}
                             {isCancelled && (
                                 <div className="inline-flex items-center gap-1.5 text-[11px] text-amber-700">
-                                    <span className="h-2 w-2 rounded-full bg-amber-400"/>
+                                    <span className="h-2 w-2 rounded-full bg-amber-400" />
                                     已暂停
                                 </div>
                             )}
                         </div>
                         <div className="flex items-center gap-2">
-                        {showSwitcher && (
-                            <div className="flex items-center gap-1.5 rounded-md bg-slate-50 border border-slate-200 px-2 py-1">
+                            {showSwitcher && (
+                                <div className="flex items-center gap-1.5 rounded-md bg-slate-50 border border-slate-200 px-2 py-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const prevIndex = (currentResultIndex - 1 + successfulResults.length) % successfulResults.length;
+                                            onComparisonApply?.(successfulResults[prevIndex]);
+                                        }}
+                                        className="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-200 transition"
+                                        aria-label="切换到上一个结果"
+                                    >
+                                        <svg className="h-3.5 w-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+                                    <span className="text-[11px] font-medium text-slate-600 min-w-[32px] text-center">
+                                        {currentResultIndex + 1}/{successfulResults.length}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const nextIndex = (currentResultIndex + 1) % successfulResults.length;
+                                            onComparisonApply?.(successfulResults[nextIndex]);
+                                        }}
+                                        className="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-200 transition"
+                                        aria-label="切换到下一个结果"
+                                    >
+                                        <svg className="h-3.5 w-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            )}
+                            {canStopComparison && (
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        const prevIndex = (currentResultIndex - 1 + successfulResults.length) % successfulResults.length;
-                                        onComparisonApply?.(successfulResults[prevIndex]);
-                                    }}
-                                    className="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-200 transition"
-                                    aria-label="切换到上一个结果"
+                                    onClick={onStopAll}
+                                    className="inline-flex items-center rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
                                 >
-                                    <svg className="h-3.5 w-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                    </svg>
+                                    暂停生成
                                 </button>
-                                <span className="text-[11px] font-medium text-slate-600 min-w-[32px] text-center">
-                                    {currentResultIndex + 1}/{successfulResults.length}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const nextIndex = (currentResultIndex + 1) % successfulResults.length;
-                                        onComparisonApply?.(successfulResults[nextIndex]);
-                                    }}
-                                    className="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-200 transition"
-                                    aria-label="切换到下一个结果"
-                                >
-                                    <svg className="h-3.5 w-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                    </svg>
-                                </button>
-                            </div>
-                        )}
-                        {canStopComparison && (
-                            <button
-                                type="button"
-                                onClick={onStopAll}
-                                className="inline-flex items-center rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
-                            >
-                                暂停生成
-                            </button>
-                        )}
+                            )}
                         </div>
                     </div>
-                    
+
                     {isWaitingForSelection && (
                         <div className="mb-3 rounded-md bg-amber-50/80 px-3 py-2 text-sm border border-amber-200/40">
                             <div className="flex items-start gap-2">
@@ -740,10 +812,10 @@ export function ChatMessageDisplay({
                             </div>
                         </div>
                     )}
-                    
+
                     {/* 横向滚动容器 */}
                     <div className="w-full overflow-x-auto">
-                        <div 
+                        <div
                             className="flex gap-3 pb-2"
                             style={{
                                 width: `${entry.results.length * 360 + (entry.results.length - 1) * 12}px`,
@@ -751,160 +823,160 @@ export function ChatMessageDisplay({
                                 scrollBehavior: 'smooth',
                             }}
                         >
-                        {entry.results.map((result, resultIndex) => {
-                            const cardKey = `${keyBase}-${result.id ?? resultIndex}`;
-                            const trimmedEncodedXml = result.encodedXml?.trim();
-                            const trimmedXml = result.xml?.trim();
-                            const rawXmlForPreview =
-                                trimmedEncodedXml && trimmedEncodedXml.length > 0
-                                    ? trimmedEncodedXml
-                                    : trimmedXml && trimmedXml.length > 0
-                                        ? trimmedXml
-                                        : "";
-                            const previewUrl =
-                                result.status === "ok" &&
-                                rawXmlForPreview &&
-                                buildComparisonPreviewUrl
-                                    ? buildComparisonPreviewUrl(rawXmlForPreview)
+                            {entry.results.map((result, resultIndex) => {
+                                const cardKey = `${keyBase}-${result.id ?? resultIndex}`;
+                                const trimmedEncodedXml = result.encodedXml?.trim();
+                                const trimmedXml = result.xml?.trim();
+                                const rawXmlForPreview =
+                                    trimmedEncodedXml && trimmedEncodedXml.length > 0
+                                        ? trimmedEncodedXml
+                                        : trimmedXml && trimmedXml.length > 0
+                                            ? trimmedXml
+                                            : "";
+                                const previewUrl =
+                                    result.status === "ok" &&
+                                        rawXmlForPreview &&
+                                        buildComparisonPreviewUrl
+                                        ? buildComparisonPreviewUrl(rawXmlForPreview)
+                                        : null;
+                                const previewSvgSrc = svgToDataUrl(result.previewSvg);
+                                const previewImageSrc = result.previewImage?.trim()?.length
+                                    ? result.previewImage
                                     : null;
-                            const previewSvgSrc = svgToDataUrl(result.previewSvg);
-                            const previewImageSrc = result.previewImage?.trim()?.length
-                                ? result.previewImage
-                                : null;
-                            const hasPreview =
-                                result.status === "ok" &&
-                                (Boolean(previewSvgSrc) ||
-                                    Boolean(previewImageSrc) ||
-                                    Boolean(previewUrl));
-                            const isActive =
-                                activePreview?.requestId === entry.requestId &&
-                                activePreview?.resultId === result.id;
-                            const isActiveBranch =
-                                activeBranchId && result.branchId === activeBranchId;
-                            const badgeLabel = isActiveBranch
-                                ? "使用中"
-                                : null;
+                                const hasPreview =
+                                    result.status === "ok" &&
+                                    (Boolean(previewSvgSrc) ||
+                                        Boolean(previewImageSrc) ||
+                                        Boolean(previewUrl));
+                                const isActive =
+                                    activePreview?.requestId === entry.requestId &&
+                                    activePreview?.resultId === result.id;
+                                const isActiveBranch =
+                                    activeBranchId && result.branchId === activeBranchId;
+                                const badgeLabel = isActiveBranch
+                                    ? "使用中"
+                                    : null;
 
-                            return (
-                                <div
-                                    key={cardKey}
-                                    className={cn(
-                                        "group relative flex flex-col rounded-lg overflow-hidden transition-all duration-200 border flex-shrink-0",
-                                        result.status === "ok"
-                                            ? "bg-white border-slate-200/60"
-                                            : result.status === "loading"
-                                                ? "bg-slate-50 border-slate-200/40"
-                                                : result.status === "cancelled"
-                                                    ? "bg-amber-50/50 border-amber-200/40"
-                                                : "bg-red-50/50 border-red-200/40",
-                                        isActive && "ring-1 ring-blue-400"
-                                    )}
-                                    style={{ width: '360px', height: '260px' }}
-                                >
-                                    {/* 预览图区域 */}
-                                    <div className="relative bg-slate-50/30" style={{ height: '220px' }}>
-                                        <div 
-                                            role={result.status === "ok" ? "button" : undefined}
-                                            tabIndex={result.status === "ok" ? 0 : -1}
-                                            onClick={() =>
-                                                result.status === "ok" &&
-                                                onComparisonPreview?.(entry.requestId, result)
-                                            }
-                                            className={cn(
-                                                "flex h-full w-full justify-center items-center overflow-hidden p-2",
-                                                result.status === "ok" && "cursor-pointer"
-                                            )}
-                                        >
-                                            {result.status === "ok" ? (
-                                                hasPreview ? (
-                                                    <>
-                                                        {previewSvgSrc ? (
-                                                            <div className="relative h-full w-full">
-                                                                <Image
-                                                                    src={previewSvgSrc}
-                                                                    alt={`comparison-preview-svg-${cardKey}`}
-                                                                    fill
-                                                                className="object-contain"
-                                                                    sizes="(max-width: 768px) 100vw, 360px"
-                                                                    unoptimized
+                                return (
+                                    <div
+                                        key={cardKey}
+                                        className={cn(
+                                            "group relative flex flex-col rounded-lg overflow-hidden transition-all duration-200 border flex-shrink-0",
+                                            result.status === "ok"
+                                                ? "bg-white border-slate-200/60"
+                                                : result.status === "loading"
+                                                    ? "bg-slate-50 border-slate-200/40"
+                                                    : result.status === "cancelled"
+                                                        ? "bg-amber-50/50 border-amber-200/40"
+                                                        : "bg-red-50/50 border-red-200/40",
+                                            isActive && "ring-1 ring-blue-400"
+                                        )}
+                                        style={{ width: '360px', height: '260px' }}
+                                    >
+                                        {/* 预览图区域 */}
+                                        <div className="relative bg-slate-50/30" style={{ height: '220px' }}>
+                                            <div
+                                                role={result.status === "ok" ? "button" : undefined}
+                                                tabIndex={result.status === "ok" ? 0 : -1}
+                                                onClick={() =>
+                                                    result.status === "ok" &&
+                                                    onComparisonPreview?.(entry.requestId, result)
+                                                }
+                                                className={cn(
+                                                    "flex h-full w-full justify-center items-center overflow-hidden p-2",
+                                                    result.status === "ok" && "cursor-pointer"
+                                                )}
+                                            >
+                                                {result.status === "ok" ? (
+                                                    hasPreview ? (
+                                                        <>
+                                                            {previewSvgSrc ? (
+                                                                <div className="relative h-full w-full">
+                                                                    <Image
+                                                                        src={previewSvgSrc}
+                                                                        alt={`comparison-preview-svg-${cardKey}`}
+                                                                        fill
+                                                                        className="object-contain"
+                                                                        sizes="(max-width: 768px) 100vw, 360px"
+                                                                        unoptimized
+                                                                    />
+                                                                </div>
+                                                            ) : previewImageSrc ? (
+                                                                <div className="relative h-full w-full">
+                                                                    <Image
+                                                                        src={previewImageSrc}
+                                                                        alt={`comparison-preview-${cardKey}`}
+                                                                        fill
+                                                                        className="object-contain"
+                                                                        sizes="(max-width: 768px) 100vw, 360px"
+                                                                        unoptimized
+                                                                    />
+                                                                </div>
+                                                            ) : previewUrl ? (
+                                                                <iframe
+                                                                    src={previewUrl}
+                                                                    title={`diagram-preview-${cardKey}`}
+                                                                    className="h-full w-full border-0"
+                                                                    loading="lazy"
+                                                                    allowFullScreen
                                                                 />
-                                                            </div>
-                                                        ) : previewImageSrc ? (
-                                                            <div className="relative h-full w-full">
-                                                                <Image
-                                                                    src={previewImageSrc}
-                                                                    alt={`comparison-preview-${cardKey}`}
-                                                                    fill
-                                                                    className="object-contain"
-                                                                    sizes="(max-width: 768px) 100vw, 360px"
-                                                                    unoptimized
-                                                                />
-                                                            </div>
-                                                        ) : previewUrl ? (
-                                                            <iframe
-                                                                src={previewUrl}
-                                                                title={`diagram-preview-${cardKey}`}
-                                                                className="h-full w-full border-0"
-                                                                loading="lazy"
-                                                                allowFullScreen
-                                                            />
-                                                        ) : (
-                                                            <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
-                                                                暂无预览
-                                                            </div>
-                                                        )}
-                                                    </>
+                                                            ) : (
+                                                                <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+                                                                    暂无预览
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+                                                            暂无预览
+                                                        </div>
+                                                    )
                                                 ) : (
                                                     <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
-                                                        暂无预览
+                                                        {result.status === "loading"
+                                                            ? "正在生成…"
+                                                            : result.status === "cancelled"
+                                                                ? "已暂停"
+                                                                : "生成失败"}
                                                     </div>
-                                                )
-                                            ) : (
-                                                <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
-                                                    {result.status === "loading"
-                                                        ? "正在生成…"
-                                                        : result.status === "cancelled"
-                                                            ? "已暂停"
-                                                        : "生成失败"}
-                                                </div>
-                                            )}
-                                        </div>
-                                        
-                                        {/* 左上角标签 */}
-                                        <div className="absolute left-2 top-2">
-                                            <span className="inline-flex items-center rounded-md bg-white/90 backdrop-blur-sm border border-slate-200/50 px-2 py-1 text-[11px] font-medium text-slate-700">
-                                                {result.slot === "A" ? "模型 A" : "模型 B"}
-                                            </span>
-                                        </div>
-                                        
-                                        {/* 右上角使用中标签 */}
-                                        {badgeLabel && (
-                                            <div className="absolute right-2 top-2">
-                                                <span className="inline-flex items-center rounded-md bg-blue-500 px-2 py-1 text-[11px] font-medium text-white">
-                                                    ✓ {badgeLabel}
+                                                )}
+                                            </div>
+
+                                            {/* 左上角标签 */}
+                                            <div className="absolute left-2 top-2">
+                                                <span className="inline-flex items-center rounded-md bg-white/90 backdrop-blur-sm border border-slate-200/50 px-2 py-1 text-[11px] font-medium text-slate-700">
+                                                    {result.slot === "A" ? "模型 A" : "模型 B"}
                                                 </span>
                                             </div>
-                                        )}
-                                        
-                                        {/* Hover 遮罩层和按钮 */}
-                                        {result.status === "ok" && (
-                                            <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-gradient-to-t from-slate-900/70 via-slate-900/30 to-transparent opacity-0 transition-opacity duration-200 sm:flex sm:group-hover:opacity-100">
-                                                <div className="pointer-events-auto flex gap-2">
-                                                    <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="secondary"
-                                                        className="h-8 rounded-md px-3 text-xs font-medium bg-white/95 hover:bg-white"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            onComparisonPreview?.(
-                                                                entry.requestId,
-                                                                result
-                                                            );
-                                                        }}
-                                                    >
-                                                        预览
-                                                    </Button>
+
+                                            {/* 右上角使用中标签 */}
+                                            {badgeLabel && (
+                                                <div className="absolute right-2 top-2">
+                                                    <span className="inline-flex items-center rounded-md bg-blue-500 px-2 py-1 text-[11px] font-medium text-white">
+                                                        ✓ {badgeLabel}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* Hover 遮罩层和按钮 */}
+                                            {result.status === "ok" && (
+                                                <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-gradient-to-t from-slate-900/70 via-slate-900/30 to-transparent opacity-0 transition-opacity duration-200 sm:flex sm:group-hover:opacity-100">
+                                                    <div className="pointer-events-auto flex gap-2">
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="secondary"
+                                                            className="h-8 rounded-md px-3 text-xs font-medium bg-white/95 hover:bg-white"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onComparisonPreview?.(
+                                                                    entry.requestId,
+                                                                    result
+                                                                );
+                                                            }}
+                                                        >
+                                                            预览
+                                                        </Button>
                                                     <Button
                                                         type="button"
                                                         size="sm"
@@ -913,38 +985,38 @@ export function ChatMessageDisplay({
                                                             event.stopPropagation();
                                                             onComparisonApply?.(result);
                                                         }}
-                                                        disabled={!result.xml}
+                                                        disabled={!result.xml && !result.svg}
                                                     >
                                                         设为画布
                                                     </Button>
                                                 </div>
                                             </div>
-                                        )}
-                                    </div>
-                                    
-                                    {/* 底部信息区 */}
-                                    <div className="px-3 py-2 bg-white border-t border-slate-100">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="text-xs font-medium text-slate-900 truncate">
-                                                {result.label || result.modelId}
-                                            </div>
-                                            {result.status === "ok" && (
-                                                <div className="flex gap-1.5 sm:hidden">
-                                                    <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className="h-6 rounded-md px-2 text-[11px]"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            onComparisonPreview?.(
-                                                                entry.requestId,
-                                                                result
-                                                            );
-                                                        }}
-                                                    >
-                                                        预览
-                                                    </Button>
+                                            )}
+                                        </div>
+
+                                        {/* 底部信息区 */}
+                                        <div className="px-3 py-2 bg-white border-t border-slate-100">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="text-xs font-medium text-slate-900 truncate">
+                                                    {result.label || result.modelId}
+                                                </div>
+                                                {result.status === "ok" && (
+                                                    <div className="flex gap-1.5 sm:hidden">
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-6 rounded-md px-2 text-[11px]"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onComparisonPreview?.(
+                                                                    entry.requestId,
+                                                                    result
+                                                                );
+                                                            }}
+                                                        >
+                                                            预览
+                                                        </Button>
                                                     <Button
                                                         type="button"
                                                         size="sm"
@@ -953,85 +1025,85 @@ export function ChatMessageDisplay({
                                                             event.stopPropagation();
                                                             onComparisonApply?.(result);
                                                         }}
-                                                        disabled={!result.xml}
+                                                        disabled={!result.xml && !result.svg}
                                                     >
                                                         设为画布
                                                     </Button>
                                                 </div>
+                                                )}
+                                            </div>
+                                            {/* Token 使用信息 */}
+                                            {result.status === "ok" && (result.usage || result.durationMs !== undefined) && (
+                                                <TokenUsageDisplay
+                                                    usage={result.usage}
+                                                    durationMs={result.durationMs}
+                                                    compact
+                                                />
                                             )}
                                         </div>
-                                        {/* Token 使用信息 */}
-                                        {result.status === "ok" && (result.usage || result.durationMs !== undefined) && (
-                                            <TokenUsageDisplay
-                                                usage={result.usage}
-                                                durationMs={result.durationMs}
-                                                compact
-                                            />
+
+                                        {/* 错误状态 */}
+                                        {result.status === "error" && (
+                                            <div className="px-3 py-2 bg-red-50 border-t border-red-100">
+                                                <div className="flex flex-col gap-1.5">
+                                                    <div className="text-[11px] text-red-700 leading-relaxed">
+                                                        {result.error ?? "调用模型失败，请稍后重试或调整提示词。"}
+                                                    </div>
+                                                    {onComparisonRetry && (
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-6 w-fit rounded-md px-2 text-[11px] font-medium border-red-200 text-red-700 hover:bg-red-100"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onComparisonRetry(entry, result);
+                                                            }}
+                                                        >
+                                                            重新生成
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 加载状态 */}
+                                        {result.status === "loading" && (
+                                            <div className="px-3 py-2 bg-slate-50 border-t border-slate-100">
+                                                <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                                    <div className="h-2.5 w-2.5 rounded-full border-2 border-slate-400 border-t-transparent animate-spin"></div>
+                                                    正在生成…
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 暂停状态 */}
+                                        {result.status === "cancelled" && (
+                                            <div className="px-3 py-2 bg-amber-50 border-t border-amber-100">
+                                                <div className="flex flex-col gap-1.5">
+                                                    <div className="text-[11px] text-amber-700 leading-relaxed">
+                                                        {result.error ?? "生成已暂停"}
+                                                    </div>
+                                                    {onComparisonRetry && (
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-6 w-fit rounded-md px-2 text-[11px] font-medium border-amber-200 text-amber-700 hover:bg-amber-100"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onComparisonRetry(entry, result);
+                                                            }}
+                                                        >
+                                                            重新生成
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
-                                    
-                                    {/* 错误状态 */}
-                                    {result.status === "error" && (
-                                        <div className="px-3 py-2 bg-red-50 border-t border-red-100">
-                                            <div className="flex flex-col gap-1.5">
-                                                <div className="text-[11px] text-red-700 leading-relaxed">
-                                                    {result.error ?? "调用模型失败，请稍后重试或调整提示词。"}
-                                                </div>
-                                                {onComparisonRetry && (
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-6 w-fit rounded-md px-2 text-[11px] font-medium border-red-200 text-red-700 hover:bg-red-100"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            onComparisonRetry(entry, result);
-                                                        }}
-                                                    >
-                                                        重新生成
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {/* 加载状态 */}
-                                    {result.status === "loading" && (
-                                        <div className="px-3 py-2 bg-slate-50 border-t border-slate-100">
-                                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                                                <div className="h-2.5 w-2.5 rounded-full border-2 border-slate-400 border-t-transparent animate-spin"></div>
-                                                正在生成…
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {/* 暂停状态 */}
-                                    {result.status === "cancelled" && (
-                                        <div className="px-3 py-2 bg-amber-50 border-t border-amber-100">
-                                            <div className="flex flex-col gap-1.5">
-                                                <div className="text-[11px] text-amber-700 leading-relaxed">
-                                                    {result.error ?? "生成已暂停"}
-                                                </div>
-                                                {onComparisonRetry && (
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-6 w-fit rounded-md px-2 text-[11px] font-medium border-amber-200 text-amber-700 hover:bg-amber-100"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            onComparisonRetry(entry, result);
-                                                        }}
-                                                    >
-                                                        重新生成
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -1133,10 +1205,17 @@ export function ChatMessageDisplay({
                         const contentParts = parts.filter(
                             (part: any) => !part.type?.startsWith("tool-")
                         );
+                        const displayableContentParts = contentParts.filter((part: any) => {
+                            if (part.type === "text") {
+                                const textToShow = (part.displayText ?? part.text ?? "").trim();
+                                return textToShow.length > 0;
+                            }
+                            return true;
+                        });
                         const fallbackText =
                             contentParts.length === 0 ? resolveMessageText(message) : "";
                         const hasBubbleContent =
-                            contentParts.length > 0 || fallbackText.length > 0;
+                            displayableContentParts.length > 0 || fallbackText.length > 0;
                         const anchoredEntries =
                             anchoredComparisons.get(message.id) ?? [];
                         if (anchoredEntries.length > 0) {
@@ -1169,7 +1248,7 @@ export function ChatMessageDisplay({
                                                     !isExpanded && "max-h-[200px] overflow-hidden relative"
                                                 )}
                                             >
-                                                {contentParts.map((part: any, index: number) => {
+                                                {displayableContentParts.map((part: any, index: number) => {
                                                     switch (part.type) {
                                                         case "text":
                                                             const textToShow =
@@ -1199,17 +1278,17 @@ export function ChatMessageDisplay({
                                                     <div>{fallbackText}</div>
                                                 )}
                                                 {!isExpanded && (
-                                                    <div 
+                                                    <div
                                                         className={cn(
                                                             "absolute bottom-0 left-0 right-0 h-20 pointer-events-none",
-                                                            isUser 
-                                                                ? "bg-gradient-to-t from-slate-900 to-transparent" 
+                                                            isUser
+                                                                ? "bg-gradient-to-t from-slate-900 to-transparent"
                                                                 : "bg-gradient-to-t from-white to-transparent"
                                                         )}
                                                     />
                                                 )}
                                             </div>
-                                            
+
                                             <div className={cn(
                                                 "flex items-center gap-1.5 mt-1.5",
                                                 isUser ? "justify-end" : "justify-start"
@@ -1219,8 +1298,8 @@ export function ChatMessageDisplay({
                                                     onClick={() => handleCopyMessage(message.id, fullMessageText)}
                                                     className={cn(
                                                         "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
-                                                        isUser 
-                                                            ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50" 
+                                                        isUser
+                                                            ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
                                                             : "text-slate-500 hover:text-slate-700 hover:bg-slate-100",
                                                         isCopied && "text-emerald-600"
                                                     )}
@@ -1242,15 +1321,15 @@ export function ChatMessageDisplay({
                                                         </>
                                                     )}
                                                 </button>
-                                                
+
                                                 {shouldCollapse && (
                                                     <button
                                                         type="button"
                                                         onClick={() => toggleMessageExpanded(message.id)}
                                                         className={cn(
                                                             "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
-                                                            isUser 
-                                                                ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50" 
+                                                            isUser
+                                                                ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
                                                                 : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                                                         )}
                                                     >
@@ -1271,39 +1350,39 @@ export function ChatMessageDisplay({
                                                         )}
                                                     </button>
                                                 )}
-                                    {isUser && onMessageRevert && (
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                onMessageRevert({
-                                                    messageId: message.id,
-                                                    text: resolveMessageText(message),
-                                                })
-                                            }
-                                            className={cn(
-                                                "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
-                                                isUser
-                                                    ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                                                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                                            )}
-                                            title="回滚到此处"
-                                        >
-                                            <svg
-                                                className="w-3.5 h-3.5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M15 3h4v4m-9 9l9-9m-9 0h4"
-                                                />
-                                            </svg>
-                                            <span>Revert</span>
-                                        </button>
-                                    )}
+                                                {isUser && onMessageRevert && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            onMessageRevert({
+                                                                messageId: message.id,
+                                                                text: resolveMessageText(message),
+                                                            })
+                                                        }
+                                                        className={cn(
+                                                            "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
+                                                            isUser
+                                                                ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                                                                : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                                                        )}
+                                                        title="回滚到此处"
+                                                    >
+                                                        <svg
+                                                            className="w-3.5 h-3.5"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            viewBox="0 0 24 24"
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                strokeWidth={2}
+                                                                d="M15 3h4v4m-9 9l9-9m-9 0h4"
+                                                            />
+                                                        </svg>
+                                                        <span>Revert</span>
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -1349,7 +1428,7 @@ export function ChatMessageDisplay({
                 </>
             )}
             {/* 显示生成中的 loading 提示 */}
-            {isGenerationBusy && (
+            {isGenerationBusy && !hasLiveToolCard && (
                 <div className="flex justify-start mb-5">
                     <div className="inline-flex items-center gap-3 rounded-2xl bg-gradient-to-r from-slate-50 to-white px-4 py-3 shadow-sm border border-slate-200">
                         <div className="flex space-x-1">
