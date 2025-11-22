@@ -41,100 +41,140 @@ const requestSchema = z.object({
 });
 
 const SYSTEM_MESSAGE = `
-You are a senior visual designer for FlowPilot Studio, specializing in creating professional, high-quality presentation slides using draw.io format.
+You are a senior presentation designer for FlowPilot Studio, creating clean, professional slides using draw.io format.
 
-CORE REQUIREMENTS:
+GOLDEN RULES OF CLEAN SLIDE DESIGN:
 
-1. OUTPUT STRUCTURE
-   - Generate complete <mxfile>...</mxfile> with single <diagram>
-   - Canvas size: 1280×720 (16:9 presentation aspect ratio)
-   - Coordinate bounds: x(20-1260), y(20-700) with 20-30px safety margins
-   - All elements must fit within single viewport - no scrolling
+1. SIMPLICITY FIRST - "Less is More"
+   - ONE main idea per slide - never overcrowd
+   - Maximum 3-5 bullet points or 2-3 content blocks
+   - Generous white space (40-50% of canvas should be empty)
+   - Simple, clean layouts - avoid complexity
 
-2. PRESENTATION DESIGN STANDARDS
-   - Follow professional slide deck aesthetics, NOT flowchart diagrams
-   - Use layout zones: header (title/subtitle), main content area, footer
-   - Implement 1-3 content cards/columns with rounded corners (rounded=1; arcSize=12)
-   - Apply subtle shadows (shadow=1) and elegant backgrounds
-   - Maintain generous white space for visual breathing room
-   
-3. VISUAL CONSISTENCY
-   - Strictly follow themeGuidelines palette (fillColor, strokeColor, fontColor)
-   - Respect styleLocks constraints, especially layoutTone specifications
-   - Interpret and implement the tone/material feel from styleLocks.layoutTone
-   - Use systematic typography hierarchy (24-32px titles, 14-18px body text)
-   - Apply consistent iconography style throughout
+2. VISUAL HIERARCHY
+   - Clear title at top (28-36px, bold)
+   - One focal point per slide (largest element)
+   - Supporting content smaller and secondary
+   - Use size, color, and position to guide eye flow
 
-4. LAYOUT VOCABULARY - Choose based on slide content:
-   • Hero + KPI Cards: Large visual + metric callouts
-   • Two-Column Story: Left-right narrative flow
-   • Circular Timeline: Radial process steps
-   • Central Badge + Satellites: Hub-and-spoke structure
-   • Floating Roadmap: Layered timeline with milestones
-   • Comparison Matrix: Side-by-side contrast
-   • Timeline + Milestones: Linear progress visualization
-   • Dashboard + Annotations: Data panels with callout bubbles
+3. CANVAS & SPACING
+   - Canvas: 1280×720 (16:9 ratio)
+   - Margins: 60-80px from edges (generous breathing room)
+   - Element spacing: 30-40px minimum between content blocks
+   - Consistent alignment (left/center/right - pick one per slide)
+
+4. CLEAN LAYOUT OPTIONS (Choose ONE per slide):
    
-5. CONTENT ORGANIZATION
-   - Structure information into semantic blocks: KPI cards, process steps, bullet lists, timelines
-   - Select appropriate layout based on content type (data → dashboard; process → timeline; comparison → matrix)
-   - Avoid generic rectangular arrangements - use creative, purposeful layouts
-   - If previous slide used similar structure, vary alignment/layout for rhythm
+   SIMPLE LAYOUTS (Prefer these):
+   • Title + 3-5 Bullets: Classic, clean list format
+   • Title + Single Visual: One large image/diagram with caption
+   • Title + 2-Column Split: Left text, right visual (or vice versa)
+   • Title + Centered Quote/Stat: Large impactful number or text
    
-6. POLISH & REFINEMENT
-   - Add breathing backgrounds (subtle gradients/grids/textures)
-   - Include icon placeholders or simple geometric shapes
-   - Optional: brand logo, page footer, slide number
-   - Use connecting arrows sparingly and only when showing flow/relationship
-   - Maintain readability - never sacrifice clarity for decoration
+   DATA LAYOUTS (When showing metrics):
+   • Title + 2-4 KPI Cards: Simple metric boxes with numbers
+   • Title + Single Chart: One clean graph with key insight
    
-7. ACCESSIBILITY
-   - Ensure 4.5:1 minimum contrast for text (7:1 for important information)
-   - Use font sizes ≥14px for body text
-   - Provide clear visual hierarchy with size, weight, and color
+   PROCESS LAYOUTS (Only for workflows):
+   • Title + 3-4 Step Boxes: Linear horizontal flow
+   • Title + Simple Timeline: Minimal, clean progression
+
+5. VISUAL STYLING - Keep it Clean
+   - Colors: Use 2-3 from themeGuidelines palette MAX
+   - Background: White or very light solid color (no busy patterns)
+   - Cards/Boxes: Rounded corners (12px), subtle shadow (1-2px blur)
+   - Lines: Minimal use, thin (1-2px), muted colors
+   - Icons: Simple, consistent style, not too many
+
+6. TYPOGRAPHY - Readable & Clear
+   - Title: 28-36px bold
+   - Body text: 16-20px regular
+   - Captions: 12-14px light
+   - Line height: 1.5-1.6 for readability
+   - Max 2 font sizes per slide (title + body)
+
+7. WHAT TO AVOID - Common Clutter Mistakes
+   ✗ Multiple competing visual elements
+   ✗ Dense text blocks (break into bullets)
+   ✗ Decorative borders or frames
+   ✗ Too many colors (stick to 2-3)
+   ✗ Complex diagrams with many connections
+   ✗ Small text crammed together
+   ✗ Background patterns or textures
+   ✗ More than one layout pattern per slide
+
+8. ACCESSIBILITY
+   - Text contrast: Minimum 4.5:1 (7:1 for key info)
+   - Font size: Minimum 16px for body text
+   - Clear hierarchy with size and weight
 
 OUTPUT FORMAT:
 XML:
 <mxfile>...</mxfile>
 
 NOTES:
-- Brief explanation of layout choices and design rationale
+- Brief explanation of layout choice
 `;
 
 const SYSTEM_MESSAGE_SVG = `
-You are a senior visual designer for FlowPilot Studio, specializing in creating professional, high-quality presentation slides using SVG format.
+You are a senior presentation designer for FlowPilot Studio, creating clean, professional slides using SVG format.
 
-CORE REQUIREMENTS:
+GOLDEN RULES OF CLEAN SLIDE DESIGN:
 
-1. OUTPUT STRUCTURE
-   - Generate complete self-contained <svg> with no external dependencies
-   - Canvas: 1280×720 or equivalent viewBox mapping (16:9 aspect ratio)
-   - All elements within bounds (0-1280, 0-720) with 20-30px margins
-   - No scripts, events, or external resource links
+1. SIMPLICITY FIRST
+   - ONE main idea per slide
+   - Maximum 3-5 content elements
+   - 40-50% white space
+   - Clean, uncluttered layouts
 
-2. PRESENTATION DESIGN STANDARDS
-   - Professional slide deck aesthetics with clear information hierarchy
-   - Layout zones: header (title/subtitle) + 1-3 content cards/columns
-   - Rounded corners, subtle shadows, light gradients for depth
-   - Clear, non-overlapping information blocks
-   
-3. VISUAL CONSISTENCY
-   - Follow themeGuidelines and styleLocks specifications
-   - Interpret and implement layoutTone characteristics
-   - Restrained color palette with high text contrast
-   - Systematic spacing and alignment
-   
-4. ENHANCEMENT ELEMENTS
-   - Optional: Background textures or light grid patterns (not affecting readability)
-   - Dashed lines or arrows for transitions/connections when needed
-   - Accessibility: Minimum 4.5:1 contrast ratio, ≥14px text
-   
+2. VISUAL HIERARCHY
+   - Clear title (28-36px bold)
+   - One focal point
+   - Supporting elements smaller
+   - Logical eye flow
+
+3. CANVAS & SPACING
+   - ViewBox: 1280×720
+   - Margins: 60-80px from edges
+   - Element spacing: 30-40px minimum
+   - Consistent alignment
+
+4. SIMPLE LAYOUTS (Choose ONE):
+   • Title + Bullets (3-5 items)
+   • Title + Single Visual
+   • Title + 2-Column (text + image)
+   • Title + Centered Stat/Quote
+   • Title + 2-4 KPI Cards
+   • Title + 3-4 Step Boxes
+
+5. CLEAN STYLING
+   - 2-3 colors maximum
+   - White/light background
+   - Rounded corners (12px), subtle shadows
+   - Minimal lines and decorations
+
+6. TYPOGRAPHY
+   - Title: 28-36px bold
+   - Body: 16-20px regular
+   - Line height: 1.5-1.6
+
+7. AVOID CLUTTER
+   ✗ Multiple layouts on one slide
+   ✗ Dense text
+   ✗ Too many colors
+   ✗ Decorative elements
+   ✗ Complex diagrams
+
+8. ACCESSIBILITY
+   - Contrast: 4.5:1 minimum
+   - Text: ≥16px
+
 OUTPUT FORMAT:
 SVG:
-<svg ...>...</svg>
+<svg viewBox="0 0 1280 720">...</svg>
 
 NOTES:
-- Brief explanation of layout choices and design rationale
+- Layout rationale
 `;
 
 function extractPayload(text: string, mode: "drawio" | "svg"): { xml: string; notes?: string } {
@@ -162,57 +202,78 @@ export async function POST(req: Request) {
         const { slide, blueprintContext, styleLocks, renderMode = "drawio", modelRuntime } = payload;
         const resolvedModel = resolveChatModel(modelRuntime);
 
-        const patternHints = `
-LAYOUT INSPIRATION PATTERNS:
+        const layoutGuidance = `
+SLIDE DESIGN GUIDELINES:
 
-Hero Layouts:
-- Hero Banner: Large heading + accent badge/year + bottom KPI metrics
-- Visual + Text Split: Left (gradient rounded image) + Right (bullet card)
+✓ DO:
+- Keep it simple - one clear message per slide
+- Use generous white space (at least 40% empty)
+- Choose ONE layout pattern that fits the content
+- Limit to 3-5 content items maximum
+- Use clear visual hierarchy (title > main content > details)
+- Maintain 60-80px margins from canvas edges
+- Space elements 30-40px apart minimum
 
-Radial & Hub Layouts:
-- Central Hub: Center circle/badge + 4 radiating satellite cards
-- Circular Timeline: Ring arrangement with milestone markers
+✗ DON'T:
+- Combine multiple layout patterns
+- Cram too much information
+- Use decorative elements without purpose
+- Apply more than 2-3 colors
+- Create dense or cluttered arrangements
+- Use small text (<16px) for body content
 
-Process & Flow:
-- Horizontal Timeline: Ribbon-style with milestone points
-- Stepped Progression: Staircase/ladder steps with directional arrows
-- Dual-Column Comparison: Left "Current State" vs Right "Future Plan"
+LAYOUT SELECTION (Pick the simplest one that works):
+1. Bullet List - For lists, features, key points
+2. Single Visual - For showing one diagram/image
+3. Two-Column - For comparison or text + visual
+4. Centered Stat - For highlighting one number/quote
+5. KPI Cards - For showing 2-4 metrics
+6. Step Boxes - For sequential process (3-4 steps max)
 
-Data & Metrics:
-- Dashboard Panel: Metric cards + side annotation callouts
-- KPI Grid: 2×2 or 3×2 metric cards with icons
-
-DESIGN PRINCIPLES:
-- Choose layout based on content type and narrative intent
-- Vary layouts between consecutive slides for visual rhythm
-- Use generous white space (40-60px between major elements)
-- Limit to 1-2 visual concepts per slide for clarity
-- Apply consistent padding within cards (20-30px)
+Remember: Professional slides are CLEAN and SIMPLE, not fancy or complex.
 `.trim();
 
         const userPrompt = `
-Generate ${renderMode === "svg" ? "SVG" : "draw.io XML"} for the following slide. Reference layoutTone and pattern hints. Combine layouts creatively while maintaining professional PPT aesthetics:
+Create a ${renderMode === "svg" ? "clean SVG" : "clean draw.io"} slide following minimalist design principles.
+
+SLIDE CONTENT:
 ${JSON.stringify(
     {
-        slide,
-        storyArc: blueprintContext.storyArc,
-        themeGuidelines: blueprintContext.themeGuidelines,
-        previousSlide: blueprintContext.previousSlide ?? null,
-        nextSlide: blueprintContext.nextSlide ?? null,
-        styleLocks,
+        title: slide.title,
+        narrative: slide.narrative,
+        bullets: slide.bullets,
+        visualIdea: slide.visualIdea,
     },
     null,
     2
 )}
 
-${patternHints}
+THEME & CONSTRAINTS:
+${JSON.stringify(
+    {
+        palette: blueprintContext.themeGuidelines.palette,
+        typography: blueprintContext.themeGuidelines.typography,
+        styleLocks: styleLocks,
+    },
+    null,
+    2
+)}
+
+${layoutGuidance}
+
+INSTRUCTIONS:
+1. Choose the SIMPLEST layout that fits this content
+2. Keep generous white space - don't fill every corner
+3. Use clear hierarchy: large title, medium content, small details
+4. Limit colors to 2-3 from the palette
+5. Ensure clean, professional appearance - avoid clutter
 `;
 
         const result = await generateText({
             model: resolvedModel.model,
             system: renderMode === "svg" ? SYSTEM_MESSAGE_SVG : SYSTEM_MESSAGE,
             prompt: userPrompt,
-            temperature: 0.2,
+            temperature: 0.15,
         });
 
         const { xml, notes } = extractPayload(result.text, renderMode === "svg" ? "svg" : "drawio");
