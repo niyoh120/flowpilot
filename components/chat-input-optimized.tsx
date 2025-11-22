@@ -84,7 +84,7 @@ export function ChatInputOptimized({
     const [isDragging, setIsDragging] = useState(false);
     const [showClearDialog, setShowClearDialog] = useState(false);
 
-    const MAX_VISIBLE_LINES = 6;
+    const MAX_VISIBLE_LINES = 5;
 
     // Auto-resize textarea based on content
     const adjustTextareaHeight = useCallback(() => {
@@ -223,7 +223,7 @@ export function ChatInputOptimized({
         >
             <div
                 className={cn(
-                    "relative overflow-hidden rounded-3xl border border-slate-200 bg-white/90 shadow-sm transition-all",
+                    "relative overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm transition-all",
                     isDragging && "ring-2 ring-slate-300"
                 )}
             >
@@ -259,7 +259,7 @@ export function ChatInputOptimized({
                         placeholder="描述你想让流程图如何调整，支持拖拽或粘贴图片作为参考素材"
                         disabled={status === "streaming"}
                         aria-label="聊天输入框"
-                        className="h-auto min-h-[56px] resize-none border-0 !border-none bg-transparent p-0 text-sm leading-5 text-slate-900 outline-none shadow-none focus-visible:border-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:!border-none focus-visible:!outline-none focus-visible:shadow-none"
+                        className="h-auto min-h-[48px] resize-none border-0 !border-none bg-transparent p-0 text-sm leading-5 text-slate-900 outline-none shadow-none focus-visible:border-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:!border-none focus-visible:!outline-none focus-visible:shadow-none"
                     />
                 </div>
 

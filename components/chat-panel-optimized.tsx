@@ -1082,9 +1082,9 @@ export default function ChatPanelOptimized({
     return (
         <>
             <Card className="relative flex h-full max-h-full min-h-0 flex-col gap-0 rounded-none py-0 overflow-hidden">
-                <CardHeader className="flex shrink-0 flex-col gap-2 border-b border-slate-100 px-3 py-2">
-                    <div className="flex w-full items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b border-slate-100 px-3 py-1.5">
+                    <div className="flex w-full items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5">
                             <div className="flex items-center gap-1 rounded-full bg-slate-100 p-0.5">
                                 <a
                                     href="/"
@@ -1105,20 +1105,6 @@ export default function ChatPanelOptimized({
                             <LanguageSwitcher />
                         </div>
                         <div className="flex items-center gap-1.5">
-                            {isConversationStarted && (
-                                <button
-                                    type="button"
-                                    onClick={toggleCompactMode}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
-                                    aria-label={isCompactMode ? "展开输入工具" : "精简输入工具"}
-                                >
-                                    {isCompactMode ? (
-                                        <ListPlus className="h-4 w-4" />
-                                    ) : (
-                                        <ListMinus className="h-4 w-4" />
-                                    )}
-                                </button>
-                            )}
                             <a
                                 href="https://github.com/cos43/flowpilot"
                                 target="_blank"
@@ -1154,8 +1140,8 @@ export default function ChatPanelOptimized({
                     </div>
 
                 </CardHeader>
-                <CardContent className="flex flex-1 min-h-0 flex-col px-3 pb-3 pt-2 overflow-hidden">
-                    <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
+                <CardContent className="flex flex-1 min-h-0 flex-col px-3 pb-2 pt-2 overflow-hidden">
+                    <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-hidden">
                         {!selectedModel && (
                             <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-2 text-sm text-amber-900">
                                 <div>
@@ -1197,7 +1183,7 @@ export default function ChatPanelOptimized({
                                 </div>
                             )}
                             <div
-                                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-xl bg-white/90 px-2 py-2 pb-40"
+                                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-100 bg-white px-2.5 py-2 pb-28"
                                 style={{ maxHeight: '100%' }}
                             >
                                 <ChatMessageDisplay
@@ -1256,8 +1242,8 @@ export default function ChatPanelOptimized({
                     </div>
                 </CardContent>
 
-                <div className="absolute bottom-6 left-1/2 w-full max-w-[90%] -translate-x-1/2 z-10">
-                    <div className="flex w-full flex-col gap-2">
+                <div className="absolute bottom-3 left-0 right-0 z-10 w-full px-3">
+                    <div className="flex w-full flex-col gap-1.5">
                         {briefDisplayBadges.length > 0 && (
                             <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-slate-200/60 bg-white/80 px-3 py-1.5 text-[11px] text-slate-500 shadow-lg backdrop-blur-md transition-all hover:bg-white/90">
                                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/5 px-2 py-0.5 font-semibold uppercase tracking-[0.25em] text-slate-600">
@@ -1294,7 +1280,7 @@ export default function ChatPanelOptimized({
                                 </button>
                             </div>
                         )}
-                        <div className="shadow-2xl rounded-3xl">
+                        <div className="rounded-2xl shadow-xl">
                             <ChatInputOptimized
                                 input={input}
                                 status={status}
