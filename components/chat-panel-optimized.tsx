@@ -41,6 +41,8 @@ import { SessionStatus } from "@/components/session-status";
 import { QuickActionBar } from "@/components/quick-action-bar";
 import type { QuickActionDefinition } from "@/components/quick-action-bar";
 import { FlowShowcaseGallery } from "./flow-showcase-gallery";
+import { TemplateGallery } from "@/components/template-gallery";
+import type { DiagramTemplate } from "@/types/template";
 import {
     FlowPilotBriefLauncher,
     FlowPilotBriefDialog,
@@ -118,16 +120,23 @@ export default function ChatPanelOptimized({
             chartXML,
             onDisplayChart,
             updateActiveBranchDiagram,
-        });
+    });
 
     const lastBranchIdRef = useRef(activeBranchId);
 
+    const fetchAndFormatDiagram = useCallback(
+        async (options?: { saveHistory?: boolean }) => {
+            const rawXml = await fetchDiagramXml(options);
+            const formatted = formatXML(rawXml);
+            updateLatestDiagramXml(formatted);
+            return formatted;
+        },
+        [fetchDiagramXml, updateLatestDiagramXml]
+    );
+
     const onFetchChart = useCallback(async () => {
-        const rawXml = await fetchDiagramXml();
-        const formatted = formatXML(rawXml);
-        updateLatestDiagramXml(formatted);
-        return formatted;
-    }, [fetchDiagramXml, updateLatestDiagramXml]);
+        return fetchAndFormatDiagram();
+    }, [fetchAndFormatDiagram]);
 
     const {
         isReady: isModelRegistryReady,
@@ -171,8 +180,8 @@ export default function ChatPanelOptimized({
     const [briefState, setBriefState] = useState<FlowPilotBriefState>(() => ({
         ...DEFAULT_BRIEF_STATE,
     }));
-    const [commandTab, setCommandTab] = useState<"starter" | "report" | "showcase">(
-        "starter"
+    const [commandTab, setCommandTab] = useState<"starter" | "report" | "showcase" | "templates">(
+        "templates"
     );
     const [activeToolPanel, setActiveToolPanel] = useState<ToolPanel | null>(null);
     const [isToolSidebarOpen, setIsToolSidebarOpen] = useState(false);
@@ -386,7 +395,7 @@ export default function ChatPanelOptimized({
 
                     let currentXml = "";
                     try {
-                        currentXml = await onFetchChart();
+                        currentXml = await fetchAndFormatDiagram({ saveHistory: false });
                         const editedXml = replaceXMLParts(currentXml, edits);
                         
                         // replaceXMLParts 返回完整的 XML，直接应用到画布
@@ -394,6 +403,14 @@ export default function ChatPanelOptimized({
                         onDisplayChart(editedXml);
                         updateActiveBranchDiagram(editedXml);
                         updateLatestDiagramXml(editedXml);
+
+                        // 等待 draw.io 应用更新后再导出一次，确保历史记录中保存的是最新版本
+                        try {
+                            await new Promise((resolve) => setTimeout(resolve, 250));
+                            await fetchAndFormatDiagram();
+                        } catch (snapshotError) {
+                            console.warn("Failed to capture diagram history after edit:", snapshotError);
+                        }
 
                         addToolResult({
                             tool: "edit_diagram",
@@ -958,10 +975,19 @@ export default function ChatPanelOptimized({
         return (
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        快速复用灵感 / 述职 / 样板间
-                    </div>
-                    <div className="inline-flex min-w-[220px] items-center rounded-full bg-slate-100 p-1">
+                    <div className="inline-flex min-w-[280px] items-center rounded-full bg-slate-100 p-1 overflow-x-auto scrollbar-hide">
+                        <button
+                            type="button"
+                            onClick={() => setCommandTab("templates")}
+                            className={cn(
+                                "rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap transition",
+                                commandTab === "templates"
+                                    ? "bg-white text-slate-900 shadow"
+                                    : "text-slate-500"
+                            )}
+                        >
+                            📚 模板库
+                        </button>
                         <button
                             type="button"
                             onClick={() => setCommandTab("starter")}
@@ -1000,7 +1026,23 @@ export default function ChatPanelOptimized({
                         </button>
                     </div>
                 </div>
-                {commandTab === "starter" ? (
+                {commandTab === "templates" ? (
+                    <div className="h-[60vh] overflow-hidden rounded-lg border bg-white">
+                        <TemplateGallery
+                            onSelectTemplate={(template) => {
+                                if (status === "streaming") return;
+                                if (!ensureBranchSelectionSettled()) return;
+                                // Apply template brief and send prompt
+                                setBriefState(template.brief);
+                                setInput(template.prompt);
+                                if (files.length > 0) {
+                                    handleFileChange([]);
+                                }
+                                closeToolSidebar();
+                            }}
+                        />
+                    </div>
+                ) : commandTab === "starter" ? (
                     <QuickActionBar
                         actions={QUICK_ACTIONS}
                         disabled={status === "streaming" || requiresBranchDecision}

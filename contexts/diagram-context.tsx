@@ -18,7 +18,7 @@ interface DiagramContextType {
     handleDiagramExport: (data: any) => void;
     clearDiagram: () => void;
     restoreDiagramAt: (index: number) => void;
-    fetchDiagramXml: () => Promise<string>;
+    fetchDiagramXml: (options?: { saveHistory?: boolean }) => Promise<string>;
     runtimeError: RuntimeErrorPayload | null;
     setRuntimeError: (error: RuntimeErrorPayload | null) => void;
 }
@@ -34,6 +34,7 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
     const [activeVersionIndex, setActiveVersionIndex] = useState<number>(-1);
     const drawioRef = useRef<DrawIoEmbedRef | null>(null);
     const resolverRef = useRef<((value: string) => void) | null>(null);
+    const saveHistoryRef = useRef<boolean>(true);
     const exportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const loadDiagramTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [runtimeError, setRuntimeError] = useState<RuntimeErrorPayload | null>(
@@ -65,6 +66,9 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const handleDiagramExport = (data: any) => {
+        const shouldSaveHistory = saveHistoryRef.current;
+        saveHistoryRef.current = true;
+
         const extractedXML = extractDiagramXML(data.data);
         setChartXML(extractedXML);
         setLatestSvg(data.data);
@@ -80,7 +84,7 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
         const isDuplicate = lastVersion && lastVersion.xml === extractedXML;
         
         // 只有在非空且非重复的情况下才保存到历史
-        if (!isEmptyDiagram && !isDuplicate) {
+        if (shouldSaveHistory && !isEmptyDiagram && !isDuplicate) {
             setDiagramHistory((prev) => {
                 const updated = [
                     ...prev,
@@ -123,13 +127,15 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
         setActiveVersionIndex(index);
     };
 
-    const fetchDiagramXml = () => {
+    const fetchDiagramXml = (options?: { saveHistory?: boolean }) => {
         return new Promise<string>((resolve, reject) => {
             if (!drawioRef.current) {
+                saveHistoryRef.current = true;
                 reject(new Error("DrawIO 尚未初始化，暂时无法导出画布。"));
                 return;
             }
             resolverRef.current = resolve;
+            saveHistoryRef.current = options?.saveHistory !== false;
             handleExport();
             if (exportTimeoutRef.current) {
                 clearTimeout(exportTimeoutRef.current);
@@ -137,6 +143,7 @@ export function DiagramProvider({ children }: { children: React.ReactNode }) {
             exportTimeoutRef.current = setTimeout(() => {
                 if (resolverRef.current === resolve) {
                     resolverRef.current = null;
+                    saveHistoryRef.current = true;
                     reject(
                         new Error(
                             "导出画布超时（10 秒无响应），请稍后重试。"
