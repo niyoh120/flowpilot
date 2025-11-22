@@ -144,6 +144,7 @@ export function SvgStudio() {
         commitSnapshot,
         duplicateMany,
         removeMany,
+        defsMarkup,
     } = useSvgEditor();
     const svgRef = useRef<SVGSVGElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -914,6 +915,9 @@ export function SvgStudio() {
                         onPointerMove={handleCanvasPointerMove}
                         onPointerUp={handleCanvasPointerUp}
                     >
+                        {defsMarkup && (
+                            <defs dangerouslySetInnerHTML={{ __html: defsMarkup }} />
+                        )}
                         {elements.map((element) => {
                             if (element.visible === false) return null;
                             const transform = transformStyle(element);

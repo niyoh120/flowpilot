@@ -94,6 +94,7 @@ type HistoryEntry = {
 type EditorSnapshot = {
     doc: SvgDocument;
     elements: SvgElement[];
+    defs?: string | null;
 };
 
 type SvgEditorContextValue = {
@@ -125,6 +126,7 @@ type SvgEditorContextValue = {
     undo: () => void;
     redo: () => void;
     commitSnapshot: () => void;
+    defsMarkup?: string | null;
 };
 
 const DEFAULT_DOC: SvgDocument = {
@@ -346,7 +348,7 @@ function parseElement(node: Element, inheritedTransform?: string): SvgElement | 
     }
 }
 
-function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[] } {
+function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]; defs?: string | null } {
     const parser = new DOMParser();
     const parsed = parser.parseFromString(svg, "image/svg+xml");
     const svgEl = parsed.querySelector("svg");
@@ -366,6 +368,8 @@ function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]
         parseNumber(heightAttr, Number.isFinite(vbH) ? vbH : DEFAULT_DOC.height) || DEFAULT_DOC.height;
 
     const elements: SvgElement[] = [];
+    const defsEl = svgEl.querySelector("defs");
+    const defs = defsEl ? defsEl.innerHTML : null;
     const walker = (nodeList: Iterable<Node>, inheritedTransform?: string) => {
         for (const node of nodeList) {
             if (!(node instanceof Element)) continue;
@@ -387,6 +391,7 @@ function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]
     return {
         doc: { width, height, viewBox: viewBox || `0 0 ${width} ${height}` },
         elements,
+        defs,
     };
 }
 
@@ -400,19 +405,25 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
     const [activeHistoryIndex, setActiveHistoryIndex] = useState(-1);
     const [past, setPast] = useState<EditorSnapshot[]>([]);
     const [future, setFuture] = useState<EditorSnapshot[]>([]);
+    const [defsMarkup, setDefsMarkup] = useState<string | null>(null);
 
     const takeSnapshot = useCallback(
-        (customElements?: SvgElement[], customDoc?: SvgDocument): EditorSnapshot => ({
+        (
+            customElements?: SvgElement[],
+            customDoc?: SvgDocument,
+            customDefs?: string | null
+        ): EditorSnapshot => ({
             doc: { ...(customDoc ?? doc) },
             elements: (customElements ?? elements).map((el) => ({ ...el })),
+            defs: customDefs ?? defsMarkup,
         }),
-        [doc, elements]
+        [doc, elements, defsMarkup]
     );
 
     const pushHistorySnapshot = useCallback(
-        (customElements?: SvgElement[], customDoc?: SvgDocument) => {
+        (customElements?: SvgElement[], customDoc?: SvgDocument, customDefs?: string | null) => {
             setPast((prev) => {
-                const next = [...prev, takeSnapshot(customElements, customDoc)];
+                const next = [...prev, takeSnapshot(customElements, customDoc, customDefs)];
                 return next.slice(-50);
             });
             setFuture([]);
@@ -433,8 +444,17 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
     );
 
     const exportSvgMarkup = useCallback(() => {
-        return buildSvgMarkup(doc, elements);
-    }, [doc, elements]);
+        const viewBox =
+            doc.viewBox && doc.viewBox.trim().length > 0
+                ? doc.viewBox
+                : `0 0 ${doc.width} ${doc.height}`;
+        const defsContent = defsMarkup ? `<defs>${defsMarkup}</defs>` : "";
+        const body = elements
+            .filter((el) => el.visible !== false)
+            .map(elementToMarkup)
+            .join("\n");
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="${viewBox}">${defsContent}${body}</svg>`;
+    }, [doc, elements, defsMarkup]);
 
     const addElement = useCallback(
         (element: Omit<SvgElement, "id"> | SvgElement) => {
@@ -644,8 +664,9 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
                 const parsed = parseSvgMarkup(svg);
                 setDoc(parsed.doc);
                 setElements(parsed.elements);
+                setDefsMarkup(parsed.defs ?? null);
                 setSelectedId(null);
-                pushHistorySnapshot(parsed.elements, parsed.doc);
+                pushHistorySnapshot(parsed.elements, parsed.doc, parsed.defs ?? null);
                 if (options?.saveHistory !== false) {
                     const snapshot = buildSvgMarkup(parsed.doc, parsed.elements);
                     addHistory(snapshot);
@@ -661,6 +682,7 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
         pushHistorySnapshot();
         setDoc(DEFAULT_DOC);
         setElements([]);
+        setDefsMarkup(null);
         setSelectedId(null);
         setHistory([]);
         setActiveHistoryIndex(-1);
@@ -738,6 +760,7 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
             undo,
             redo,
             commitSnapshot: () => pushHistorySnapshot(),
+            defsMarkup,
         }),
         [
             doc,
@@ -761,6 +784,7 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
             undo,
             redo,
             pushHistorySnapshot,
+            defsMarkup,
         ]
     );
 
