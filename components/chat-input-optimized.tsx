@@ -8,12 +8,8 @@ import {
     Loader2,
     Send,
     RotateCcw,
-    Image as ImageIcon,
     History,
-    Sparkles,
     Settings,
-    Palette,
-    GitCompare,
     Square,
 } from "lucide-react";
 import { ButtonWithTooltip } from "@/components/button-with-tooltip";
@@ -23,6 +19,7 @@ import { HistoryDialog } from "@/components/history-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { cn } from "@/lib/utils";
 import type { RuntimeModelOption } from "@/types/model-config";
+import { RenderModeToggle } from "@/components/render-mode-toggle";
 
 interface ChatInputOptimizedProps {
     input: string;
@@ -269,7 +266,7 @@ export function ChatInputOptimized({
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 rounded-full"
+                            className="h-[30px] w-[30px] rounded-full"
                             onClick={() => setShowClearDialog(true)}
                             tooltipContent="清空当前对话与图表"
                             disabled={status === "streaming"}
@@ -281,7 +278,7 @@ export function ChatInputOptimized({
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 rounded-full"
+                            className="h-[30px] w-[30px] rounded-full"
                             onClick={() => onToggleHistory(true)}
                             disabled={
                                 status === "streaming" ||
@@ -295,21 +292,11 @@ export function ChatInputOptimized({
                     </div>
 
                     <div className="flex flex-nowrap items-center gap-2">
-                        <Button
-                            type="button"
-                            variant={renderMode === "svg" ? "secondary" : "outline"}
-                            size="sm"
-                            className="h-8 gap-1 rounded-full px-3 text-xs font-semibold"
-                            onClick={() =>
-                                onRenderModeChange?.(
-                                    renderMode === "svg" ? "drawio" : "svg"
-                                )
-                            }
+                        <RenderModeToggle
+                            value={renderMode}
+                            onChange={onRenderModeChange}
                             disabled={status === "streaming" || interactionLocked}
-                        >
-                            <Palette className="h-3.5 w-3.5" />
-                            {renderMode === "svg" ? "SVG 渲染" : "draw.io 渲染"}
-                        </Button>
+                        />
                         <ModelSelector
                             selectedModelKey={selectedModelKey}
                             onModelChange={onModelChange}
@@ -317,6 +304,7 @@ export function ChatInputOptimized({
                             onManage={onManageModels}
                             disabled={status === "streaming" || interactionLocked}
                             onModelStreamingChange={onModelStreamingChange}
+                            compact
 
                         />
                         {comparisonEnabled ? (
@@ -325,7 +313,7 @@ export function ChatInputOptimized({
                                     <Button
                                         type="button"
                                         onClick={onStop}
-                                        className="h-8 min-w-[30px] gap-2 rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
+                                        className="h-[30px] min-w-[30px] gap-2 rounded-full bg-red-500 text-white text-[11px] shadow-sm transition hover:bg-red-600"
                                         size="sm"
                                         aria-label="暂停生成"
                                     >
@@ -335,16 +323,16 @@ export function ChatInputOptimized({
                                     <>
                                         <div className="flex items-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
 
-                                            <Button
-                                                type="button"
-                                                variant="secondary"
-                                                size="sm"
-                                                className="h-8 gap-1 rounded-none border-0 bg-slate-900/10 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-900/20 disabled:opacity-60"
-                                                disabled={
-                                                    status === "streaming" ||
-                                                    (!input.trim() && !isCompareLoading) ||
-                                                    interactionLocked
-                                                }
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="sm"
+                                            className="h-[30px] gap-1 rounded-none border-0 bg-slate-900/10 px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-900/20 disabled:opacity-60"
+                                            disabled={
+                                                status === "streaming" ||
+                                                (!input.trim() && !isCompareLoading) ||
+                                                interactionLocked
+                                            }
                                                 onClick={onCompareRequest}
                                                 aria-label="使用当前提示词进行多模型对比"
                                             >
@@ -360,15 +348,15 @@ export function ChatInputOptimized({
                                                 )}
                                             </Button>
                                             <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 rounded-none border-r border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                                                onClick={onOpenComparisonConfig}
-                                                disabled={status === "streaming" || interactionLocked}
-                                                aria-label="对比设置"
-                                            >
-                                                <Settings className="h-4 w-4" />
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-[30px] w-[30px] rounded-none border-r border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                            onClick={onOpenComparisonConfig}
+                                            disabled={status === "streaming" || interactionLocked}
+                                            aria-label="对比设置"
+                                        >
+                                            <Settings className="h-4 w-4" />
                                             </Button>
                                         </div>
                                         <Button
@@ -378,7 +366,7 @@ export function ChatInputOptimized({
                                                 !input.trim() ||
                                                 interactionLocked
                                             }
-                                            className="h-8 min-w-[30px] gap-2 rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
+                                            className="h-[30px] min-w-[30px] gap-2 rounded-full bg-slate-900 text-white text-[11px] shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
                                             size="sm"
                                             aria-label="发送消息"
                                         >
@@ -392,7 +380,7 @@ export function ChatInputOptimized({
                                 <Button
                                     type="button"
                                     onClick={onStop}
-                                    className="h-8 min-w-[30px] gap-2 rounded-full bg-red-500 text-white shadow-sm transition hover:bg-red-600"
+                                    className="h-[30px] min-w-[30px] gap-2 rounded-full bg-red-500 text-white text-[11px] shadow-sm transition hover:bg-red-600"
                                     size="sm"
                                     aria-label="暂停生成"
                                 >
@@ -406,7 +394,7 @@ export function ChatInputOptimized({
                                         !input.trim() ||
                                         interactionLocked
                                     }
-                                    className="h-8 min-w-[88px] gap-2 rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
+                                    className="h-[30px] min-w-[78px] gap-2 rounded-full bg-slate-900 text-white text-[11px] shadow-sm transition hover:bg-slate-900/90 disabled:opacity-60"
                                     size="sm"
                                     aria-label="发送消息"
                                 >

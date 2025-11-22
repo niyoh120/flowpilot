@@ -59,6 +59,7 @@ interface ModelSelectorProps {
     onManage?: () => void;
     disabled?: boolean;
     onModelStreamingChange?: (modelKey: string, isStreaming: boolean) => void;
+    compact?: boolean;
 }
 
 interface GroupedModelOptions {
@@ -75,6 +76,7 @@ export function ModelSelector({
     onManage,
     disabled = false,
     onModelStreamingChange,
+    compact = false,
 }: ModelSelectorProps) {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -182,7 +184,10 @@ export function ModelSelector({
                 disabled={disabled}
                 ref={triggerRef}
                 className={cn(
-                    "h-8 min-w-[120px] justify-between rounded-full border-slate-200 px-3 text-xs font-medium text-slate-700 hover:border-slate-300",
+                    "justify-between rounded-full border-slate-200 font-semibold text-slate-700 hover:border-slate-300",
+                    compact
+                        ? "h-[30px] min-w-[110px] px-2.5 text-[11px]"
+                        : "h-8 min-w-[120px] px-3 text-xs",
                     !selectedModel && "text-slate-400"
                 )}
             >
