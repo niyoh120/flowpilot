@@ -41,8 +41,6 @@ import { SessionStatus } from "@/components/session-status";
 import { QuickActionBar } from "@/components/quick-action-bar";
 import type { QuickActionDefinition } from "@/components/quick-action-bar";
 import { FlowShowcaseGallery } from "./flow-showcase-gallery";
-import { TemplateGallery } from "@/components/template-gallery";
-import type { DiagramTemplate } from "@/types/template";
 import {
     FlowPilotBriefLauncher,
     FlowPilotBriefDialog,
@@ -73,6 +71,7 @@ import { serializeAttachments } from "@/features/chat-panel/utils/attachments";
 import { useModelRegistry } from "@/hooks/use-model-registry";
 import { ModelConfigDialog } from "@/components/model-config-dialog";
 import type { RuntimeModelConfig } from "@/types/model-config";
+import {TemplateGallery} from "@/components/template-gallery";
 
 interface ChatPanelProps {
     onCollapse?: () => void;
@@ -120,7 +119,7 @@ export default function ChatPanelOptimized({
             chartXML,
             onDisplayChart,
             updateActiveBranchDiagram,
-    });
+        });
 
     const lastBranchIdRef = useRef(activeBranchId);
 
@@ -151,6 +150,7 @@ export default function ChatPanelOptimized({
 
     const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
     const hasPromptedModelSetup = useRef(false);
+    const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
 
     // 更新模型的流式设置
     const handleModelStreamingChange = useCallback((modelKey: string, isStreaming: boolean) => {
@@ -262,8 +262,8 @@ export default function ChatPanelOptimized({
         const prompt =
             segments.length > 0
                 ? `### FlowPilot Brief\\n${segments
-                      .map((segment) => `- ${segment}`)
-                      .join("\\n")}`
+                    .map((segment) => `- ${segment}`)
+                    .join("\\n")}`
                 : "";
 
         return { prompt, badges };
@@ -272,10 +272,10 @@ export default function ChatPanelOptimized({
         briefContext.badges.length > 0
             ? briefContext.badges
             : [
-                  "模式·空白起稿",
-                  "视觉·中性简约",
-                  "重点·简洁清晰",
-              ];
+                "模式·空白起稿",
+                "视觉·中性简约",
+                "重点·简洁清晰",
+            ];
     const briefSummary = briefDisplayBadges.slice(0, 3).join(" · ");
 
 
@@ -299,13 +299,13 @@ export default function ChatPanelOptimized({
                         if (!xml || typeof xml !== "string" || !xml.trim()) {
                             throw new Error("大模型返回的 XML 为空，无法渲染。");
                         }
-                        
+
                         // 立即渲染到画布
                         await handleDiagramXml(xml, {
                             origin: "display",
                             modelRuntime: selectedModel ?? undefined,
                         });
-                        
+
                         // 同时保存到 diagramResultsRef 供后续使用
                         diagramResultsRef.current.set(toolCall.toolCallId, {
                             xml,
@@ -313,7 +313,7 @@ export default function ChatPanelOptimized({
                             runtime: selectedModel ?? undefined,
                         });
                         setDiagramResultVersion((prev) => prev + 1);
-                        
+
                         // 立即清除 input 中的 XML，避免在 DOM 中显示大量内容
                         if (toolCall.input && typeof toolCall.input === "object") {
                             (toolCall.input as Record<string, unknown>).xmlRef =
@@ -322,7 +322,7 @@ export default function ChatPanelOptimized({
                                 xml.length;
                             (toolCall.input as Record<string, unknown>).xml = undefined;
                         }
-                        
+
                         addToolResult({
                             tool: "display_diagram",
                             toolCallId: toolCall.toolCallId,
@@ -397,7 +397,7 @@ export default function ChatPanelOptimized({
                     try {
                         currentXml = await fetchAndFormatDiagram({ saveHistory: false });
                         const editedXml = replaceXMLParts(currentXml, edits);
-                        
+
                         // replaceXMLParts 返回完整的 XML，直接应用到画布
                         // 不应使用 handleDiagramXml，因为它期望接收 <root> 片段
                         onDisplayChart(editedXml);
@@ -516,28 +516,28 @@ export default function ChatPanelOptimized({
             if (status === "streaming") {
                 await stop();
             }
-            
+
             // 找到最后一条用户消息
             const lastUserMessage = messages
                 .slice()
                 .reverse()
                 .find(msg => msg.role === "user");
-            
+
             if (!lastUserMessage) {
                 console.error("没有找到用户消息可以重试");
                 return;
             }
-            
+
             // 删除最后一条AI回复（如果有的话）
             const lastMessageIndex = messages.length - 1;
             if (lastMessageIndex >= 0 && messages[lastMessageIndex].role === "assistant") {
                 setMessages(messages.slice(0, lastMessageIndex));
             }
-            
+
             // 重新发送最后一条用户消息
             const chartXml = await onFetchChart();
             const streamingFlag = renderMode === "svg" ? false : selectedModel?.isStreaming ?? false;
-            
+
             sendMessage(
                 { parts: lastUserMessage.parts || [] },
                 {
@@ -1027,20 +1027,36 @@ export default function ChatPanelOptimized({
                     </div>
                 </div>
                 {commandTab === "templates" ? (
-                    <div className="h-[60vh] overflow-hidden rounded-lg border bg-white">
-                        <TemplateGallery
-                            onSelectTemplate={(template) => {
-                                if (status === "streaming") return;
-                                if (!ensureBranchSelectionSettled()) return;
-                                // Apply template brief and send prompt
-                                setBriefState(template.brief);
-                                setInput(template.prompt);
-                                if (files.length > 0) {
-                                    handleFileChange([]);
-                                }
-                                closeToolSidebar();
-                            }}
-                        />
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between px-1">
+                            <div className="text-sm font-semibold text-slate-700">
+                                模板库 · 精选
+                            </div>
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                className="rounded-full"
+                                onClick={() => setIsTemplateDialogOpen(true)}
+                            >
+                                全屏模板库
+                            </Button>
+                        </div>
+                        <div className="h-[64vh] overflow-hidden rounded-lg border bg-white">
+                            <TemplateGallery
+                                variant="compact"
+                                onSelectTemplate={(template) => {
+                                    if (status === "streaming") return;
+                                    if (!ensureBranchSelectionSettled()) return;
+                                    // Apply template brief and send prompt
+                                    setBriefState(template.brief);
+                                    setInput(template.prompt);
+                                    if (files.length > 0) {
+                                        handleFileChange([]);
+                                    }
+                                    closeToolSidebar();
+                                }}
+                            />
+                        </div>
                     </div>
                 ) : commandTab === "starter" ? (
                     <QuickActionBar
@@ -1076,401 +1092,426 @@ export default function ChatPanelOptimized({
 
     return (
         <>
-        <Card className="relative flex h-full max-h-full min-h-0 flex-col gap-0 rounded-none py-0 overflow-hidden">
-            <CardHeader className="flex shrink-0 flex-col gap-2 border-b border-slate-100 px-3 py-2">
-                <div className="flex w-full items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <CardTitle className="text-base font-semibold tracking-tight text-slate-900">
-                            FlowPilot 智能流程图
-                        </CardTitle>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                            studio
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        {isConversationStarted && (
-                            <button
-                                type="button"
-                                onClick={toggleCompactMode}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
-                                aria-label={isCompactMode ? "展开输入工具" : "精简输入工具"}
-                            >
-                                {isCompactMode ? (
-                                    <ListPlus className="h-4 w-4" />
-                                ) : (
-                                    <ListMinus className="h-4 w-4" />
-                                )}
-                            </button>
-                        )}
-                        <a
-                            href="https://github.com/cos43/flowpilot"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
-                            aria-label="在 GitHub 查看源码"
-                        >
-                            <FaGithub className="h-4 w-4" />
-                        </a>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setContactCopyState("idle");
-                                setIsContactDialogOpen(true);
-                            }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-white/80 text-violet-600 shadow-sm transition hover:border-violet-300 hover:bg-white"
-                            aria-label="交流联系"
-                            title="交流联系"
-                        >
-                            <Handshake className="h-4 w-4" />
-                        </button>
-                        {isCollapsible && (
-                            <button
-                                type="button"
-                                onClick={onCollapse}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
-                                aria-label="收起聊天"
-                            >
-                                <PanelRightClose className="h-4 w-4" />
-                            </button>
-                        )}
-                    </div>
-                </div>
-                {showSessionStatus && (
-                    <div className="flex flex-col gap-2">
-                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                            <SessionStatus
-                                className="flex-1"
-                                variant="inline"
-                                status={status}
-                                providerLabel={
-                                    selectedModel?.label ||
-                                    selectedModel?.modelId ||
-                                    "未配置模型"
-                                }
-                                diagramVersions={
-                                    diagramHistory.length > 0
-                                        ? diagramHistory.length
-                                        : chartXML
-                                        ? 1
-                                        : 0
-                                }
-                                attachmentCount={files.length}
-                                exchanges={exchanges}
-                            />
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    handleStopAll({
-                                        type: "success",
-                                        message: "已手动暂停当前生成任务。",
-                                    })
-                                }
-                                disabled={!isGenerationBusy}
-                                className={cn(
-                                    "inline-flex items-center justify-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                    isGenerationBusy
-                                        ? "border-slate-900 text-slate-900 hover:bg-slate-900 hover:text-white"
-                                        : "cursor-not-allowed border-slate-200 text-slate-300"
-                                )}
-                            >
-                                <PauseCircle className="h-3.5 w-3.5" />
-                                {isGenerationBusy ? "暂停生成" : "已暂停"}
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </CardHeader>
-            <CardContent className="flex flex-1 min-h-0 flex-col px-3 pb-3 pt-2 overflow-hidden">
-                <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
-                    {!selectedModel && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-2 text-sm text-amber-900">
-                            <div>
-                                FlowPilot 需要至少配置一个模型接口才能开始生成，请先填写 Base URL、API Key 与模型 ID。
-                            </div>
-                            <Button
-                                type="button"
-                                size="sm"
-                                className="rounded-full bg-amber-900 text-white hover:bg-amber-900/90"
-                                onClick={() => setIsModelConfigOpen(true)}
-                            >
-                                立即配置
-                            </Button>
-                        </div>
-                    )}
-                    <IntelligenceToolbar
-                        activePanel={activeToolPanel}
-                        isSidebarOpen={isToolSidebarOpen}
-                        onToggle={toggleToolPanel}
-                    />
-                    <div className="relative flex flex-1 min-h-0 flex-col overflow-hidden">
-                        {comparisonNotice && (
-                            <div
-                                className={cn(
-                                    "mb-3 flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs",
-                                    comparisonNotice.type === "success"
-                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                        : "border-red-200 bg-red-50 text-red-600"
-                                )}
-                            >
-                                {comparisonNotice.type === "success" ? (
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                    <AlertCircle className="h-3.5 w-3.5" />
-                                )}
-                                <span className="leading-snug">
-                                    {comparisonNotice.message}
-                                </span>
-                            </div>
-                        )}
-                        <div 
-                            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-xl bg-white/90 px-2 py-2"
-                            style={{ maxHeight: '100%' }}
-                        >
-                            <ChatMessageDisplay
-                                messages={messages}
-                                error={error}
-                                setInput={setInput}
-                                setFiles={handleFileChange}
-                                activeBranchId={activeBranchId}
-                                onDisplayDiagram={(xml) =>
-                                    handleDiagramXml(xml, {
-                                        origin: "display",
-                                        modelRuntime: selectedModel ?? undefined,
-                                    })
-                                }
-                                onComparisonApply={(result) => {
-                                    void handleApplyComparisonResult(result);
-                                }}
-                                onComparisonCopyXml={handleCopyXml}
-                                onComparisonDownload={handleDownloadXml}
-                                onComparisonPreview={(requestId, result) => {
-                                    void handlePreviewComparisonResult(requestId, result);
-                                }}
-                                onComparisonRetry={handleRetryComparisonResult}
-                                buildComparisonPreviewUrl={buildComparisonPreviewUrl}
-                                comparisonHistory={comparisonHistory}
-                                activePreview={activeComparisonPreview}
-                                onMessageRevert={handleMessageRevert}
-                                onOpenBriefPanel={
-                                    status === "streaming" ? undefined : handleOpenBriefPanel
-                                }
-                                briefBadges={briefDisplayBadges}
-                                briefSummary={briefSummary}
-                                runtimeDiagramError={runtimeError?.message ?? null}
-                                onConsumeRuntimeError={() => setRuntimeError(null)}
-                                onStopAll={() =>
-                                    void handleStopAll({
-                                        type: "error",
-                                        message: "已手动暂停当前生成任务。",
-                                    })
-                                }
-                                onRetryGeneration={handleRetryGeneration}
-                                isGenerationBusy={isGenerationBusy}
-                                isComparisonRunning={isComparisonRunning}
-                            diagramResultVersion={diagramResultVersion}
-                            getDiagramResult={getDiagramResult}
-                            />
-                        </div>
-                        <ToolPanelSidebar
-                            activePanel={activeToolPanel}
-                            isOpen={shouldShowSidebar}
-                            onClose={closeToolSidebar}
-                        >
-                            {renderToolPanel()}
-                        </ToolPanelSidebar>
-                    </div>
-                </div>
-            </CardContent>
-
-            <CardFooter className="shrink-0 border-t border-slate-100 bg-background p-3">
-                <div className="flex w-full flex-col gap-2">
-                    {briefDisplayBadges.length > 0 && (
-                        <div className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-white/90 px-3 py-2 text-[11px] text-slate-500 shadow-sm">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/5 px-2 py-0.5 font-semibold uppercase tracking-[0.25em] text-slate-600">
-                                <Sparkles className="h-3 w-3 text-amber-500" />
-                                Brief
+            <Card className="relative flex h-full max-h-full min-h-0 flex-col gap-0 rounded-none py-0 overflow-hidden">
+                <CardHeader className="flex shrink-0 flex-col gap-2 border-b border-slate-100 px-3 py-2">
+                    <div className="flex w-full items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                            <CardTitle className="text-base font-semibold tracking-tight text-slate-900">
+                                FlowPilot 智能流程图
+                            </CardTitle>
+                            <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                                studio
                             </span>
-                            <div
-                                className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap pr-1"
-                                title={briefDisplayBadges.join(" · ")}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            {isConversationStarted && (
+                                <button
+                                    type="button"
+                                    onClick={toggleCompactMode}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
+                                    aria-label={isCompactMode ? "展开输入工具" : "精简输入工具"}
+                                >
+                                    {isCompactMode ? (
+                                        <ListPlus className="h-4 w-4" />
+                                    ) : (
+                                        <ListMinus className="h-4 w-4" />
+                                    )}
+                                </button>
+                            )}
+                            <a
+                                href="https://github.com/cos43/flowpilot"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
+                                aria-label="在 GitHub 查看源码"
                             >
-                                {briefDisplayBadges.map((badge, index) => (
-                                    <span
-                                        key={`${badge}-${index}`}
-                                        className={cn(
-                                            "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                                            briefTagTone(badge)
-                                        )}
-                                    >
-                                        {badge}
-                                    </span>
-                                ))}
-                            </div>
+                                <FaGithub className="h-4 w-4" />
+                            </a>
                             <button
                                 type="button"
-                                onClick={handleOpenBriefPanel}
-                                disabled={status === "streaming"}
-                                className={cn(
-                                    "shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 transition hover:border-slate-400",
-                                    status === "streaming" &&
-                                        "cursor-not-allowed opacity-50 hover:border-slate-200"
-                                )}
+                                onClick={() => {
+                                    setContactCopyState("idle");
+                                    setIsContactDialogOpen(true);
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-white/80 text-violet-600 shadow-sm transition hover:border-violet-300 hover:bg-white"
+                                aria-label="交流联系"
+                                title="交流联系"
                             >
-                                调整
+                                <Handshake className="h-4 w-4" />
                             </button>
+                            {isCollapsible && (
+                                <button
+                                    type="button"
+                                    onClick={onCollapse}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/80 text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-white"
+                                    aria-label="收起聊天"
+                                >
+                                    <PanelRightClose className="h-4 w-4" />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    {showSessionStatus && (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                <SessionStatus
+                                    className="flex-1"
+                                    variant="inline"
+                                    status={status}
+                                    providerLabel={
+                                        selectedModel?.label ||
+                                        selectedModel?.modelId ||
+                                        "未配置模型"
+                                    }
+                                    diagramVersions={
+                                        diagramHistory.length > 0
+                                            ? diagramHistory.length
+                                            : chartXML
+                                                ? 1
+                                                : 0
+                                    }
+                                    attachmentCount={files.length}
+                                    exchanges={exchanges}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        handleStopAll({
+                                            type: "success",
+                                            message: "已手动暂停当前生成任务。",
+                                        })
+                                    }
+                                    disabled={!isGenerationBusy}
+                                    className={cn(
+                                        "inline-flex items-center justify-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                        isGenerationBusy
+                                            ? "border-slate-900 text-slate-900 hover:bg-slate-900 hover:text-white"
+                                            : "cursor-not-allowed border-slate-200 text-slate-300"
+                                    )}
+                                >
+                                    <PauseCircle className="h-3.5 w-3.5" />
+                                    {isGenerationBusy ? "暂停生成" : "已暂停"}
+                                </button>
+                            </div>
                         </div>
                     )}
-                <ChatInputOptimized
-                    input={input}
-                    status={status}
-                    onSubmit={onFormSubmit}
-                    onChange={handleInputChange}
-                    onClearChat={handleClearChat}
-                    files={files}
-                    onFileChange={handleFileChange}
-                    showHistory={showHistory}
-                    onToggleHistory={setShowHistory}
-                    isCompactMode={isCompactMode && isConversationStarted}
-                    selectedModelKey={selectedModelKey}
-                    modelOptions={modelOptions}
-                    onModelChange={selectModel}
-                    onManageModels={() => setIsModelConfigOpen(true)}
-                    onModelStreamingChange={handleModelStreamingChange}
-                    comparisonEnabled={isComparisonAllowed}
-                    onCompareRequest={async () => {
-                        if (!isComparisonAllowed) {
-                            return;
-                        }
-                        if (!input.trim()) {
-                            return;
-                        }
-                        
-                        // 先添加用户消息
-                        const enrichedInput =
-                            briefContext.prompt.length > 0
-                                ? `${briefContext.prompt}\n\n${input}`
-                                : input;
-
-                        const parts: Array<
-                            | { type: "text"; text: string; displayText?: string }
-                            | { type: "file"; url: string; mediaType: string }
-                        > = [{ type: "text", text: enrichedInput, displayText: input }];
-
-                        if (files.length > 0) {
-                            const attachments = await serializeAttachments(files);
-                            attachments.forEach(({ url, mediaType }) => {
-                                parts.push({
-                                    type: "file",
-                                    url,
-                                    mediaType,
-                                });
-                            });
-                        }
-
-                        // 生成用户消息 ID
-                        const userMessageId = `user-compare-${Date.now()}`;
-                        
-                        // 手动添加用户消息到 messages（这样消息会显示在对话中）
-                        setMessages((prev) => [
-                            ...prev,
-                            {
-                                id: userMessageId,
-                                role: "user",
-                                parts,
-                            } as any,
-                        ]);
-                        
-                        // 然后发起对比请求，传入用户消息 ID 作为 anchor
-                        void handleCompareRequest(userMessageId);
-                        setInput("");
-                        setFiles([]);
-                    }}
-                    onOpenComparisonConfig={() => {
-                        if (!isComparisonAllowed) return;
-                        setIsComparisonConfigOpen(true);
-                    }}
-                    isCompareLoading={isComparisonRunning}
-                    interactionLocked={requiresBranchDecision || !selectedModel}
-                    renderMode={renderMode}
-                    onRenderModeChange={setRenderMode}
-                />
-                </div>
-            </CardFooter>
-
-        </Card>
-        <Dialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>交流联系</DialogTitle>
-                    <DialogDescription>
-                        如果你在使用 FlowPilot 或图表创作时遇到问题、希望一起探讨方案，
-                        欢迎通过微信联系我。
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-slate-50 p-4 shadow-inner">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-violet-500">
-                        微信号
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                        <span className="text-lg font-semibold tracking-wide text-slate-900">
-                            leland1999
-                        </span>
-                        <button
-                            type="button"
-                            onClick={handleCopyWechat}
-                            className={cn(
-                                "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] font-medium transition",
-                                contactCopyState === "copied"
-                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                    : "border-violet-200 bg-white text-violet-600 hover:border-violet-300"
+                </CardHeader>
+                <CardContent className="flex flex-1 min-h-0 flex-col px-3 pb-3 pt-2 overflow-hidden">
+                    <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
+                        {!selectedModel && (
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-2 text-sm text-amber-900">
+                                <div>
+                                    FlowPilot 需要至少配置一个模型接口才能开始生成，请先填写 Base URL、API Key 与模型 ID。
+                                </div>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    className="rounded-full bg-amber-900 text-white hover:bg-amber-900/90"
+                                    onClick={() => setIsModelConfigOpen(true)}
+                                >
+                                    立即配置
+                                </Button>
+                            </div>
+                        )}
+                        <IntelligenceToolbar
+                            activePanel={activeToolPanel}
+                            isSidebarOpen={isToolSidebarOpen}
+                            onToggle={toggleToolPanel}
+                        />
+                        <div className="relative flex flex-1 min-h-0 flex-col overflow-hidden">
+                            {comparisonNotice && (
+                                <div
+                                    className={cn(
+                                        "mb-3 flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs",
+                                        comparisonNotice.type === "success"
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                            : "border-red-200 bg-red-50 text-red-600"
+                                    )}
+                                >
+                                    {comparisonNotice.type === "success" ? (
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                    ) : (
+                                        <AlertCircle className="h-3.5 w-3.5" />
+                                    )}
+                                    <span className="leading-snug">
+                                        {comparisonNotice.message}
+                                    </span>
+                                </div>
                             )}
-                        >
-                            {contactCopyState === "copied" ? (
-                                <>
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                    已复制
-                                </>
-                            ) : (
-                                <>
-                                    <Copy className="h-3.5 w-3.5" />
-                                    复制
-                                </>
-                            )}
-                        </button>
+                            <div
+                                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-xl bg-white/90 px-2 py-2"
+                                style={{ maxHeight: '100%' }}
+                            >
+                                <ChatMessageDisplay
+                                    messages={messages}
+                                    error={error}
+                                    setInput={setInput}
+                                    setFiles={handleFileChange}
+                                    activeBranchId={activeBranchId}
+                                    onDisplayDiagram={(xml) =>
+                                        handleDiagramXml(xml, {
+                                            origin: "display",
+                                            modelRuntime: selectedModel ?? undefined,
+                                        })
+                                    }
+                                    onComparisonApply={(result) => {
+                                        void handleApplyComparisonResult(result);
+                                    }}
+                                    onComparisonCopyXml={handleCopyXml}
+                                    onComparisonDownload={handleDownloadXml}
+                                    onComparisonPreview={(requestId, result) => {
+                                        void handlePreviewComparisonResult(requestId, result);
+                                    }}
+                                    onComparisonRetry={handleRetryComparisonResult}
+                                    buildComparisonPreviewUrl={buildComparisonPreviewUrl}
+                                    comparisonHistory={comparisonHistory}
+                                    activePreview={activeComparisonPreview}
+                                    onMessageRevert={handleMessageRevert}
+                                    onOpenBriefPanel={
+                                        status === "streaming" ? undefined : handleOpenBriefPanel
+                                    }
+                                    briefBadges={briefDisplayBadges}
+                                    briefSummary={briefSummary}
+                                    runtimeDiagramError={runtimeError?.message ?? null}
+                                    onConsumeRuntimeError={() => setRuntimeError(null)}
+                                    onStopAll={() =>
+                                        void handleStopAll({
+                                            type: "error",
+                                            message: "已手动暂停当前生成任务。",
+                                        })
+                                    }
+                                    onRetryGeneration={handleRetryGeneration}
+                                    isGenerationBusy={isGenerationBusy}
+                                    isComparisonRunning={isComparisonRunning}
+                                    diagramResultVersion={diagramResultVersion}
+                                    getDiagramResult={getDiagramResult}
+                                />
+                            </div>
+                            <ToolPanelSidebar
+                                activePanel={activeToolPanel}
+                                isOpen={shouldShowSidebar}
+                                onClose={closeToolSidebar}
+                            >
+                                {renderToolPanel()}
+                            </ToolPanelSidebar>
+                        </div>
                     </div>
-                    <p className="mt-3 text-xs text-slate-500">
-                        简单备注一下问题背景或想聊的主题，我会在方便时尽快回复。
-                    </p>
-                </div>
-            </DialogContent>
-        </Dialog>
-        <FlowPilotBriefDialog
-            open={isBriefDialogOpen}
-            onOpenChange={setIsBriefDialogOpen}
-            state={briefState}
-            onChange={(next) =>
-                setBriefState((prev) => ({
-                    ...prev,
-                    ...next,
-                }))
-            }
-            disabled={status === "streaming"}
-        />
-        <ModelComparisonConfigDialog
-            open={isComparisonConfigOpen}
-            onOpenChange={setIsComparisonConfigOpen}
-            config={comparisonConfig}
-            onConfigChange={setComparisonConfig}
-            defaultPrimaryKey={selectedModelKey}
-            models={modelOptions}
-            onManageModels={() => setIsModelConfigOpen(true)}
-        />
-        <ModelConfigDialog
-            open={isModelConfigOpen}
-            onOpenChange={setIsModelConfigOpen}
-            endpoints={modelEndpoints}
-            onSave={saveEndpoints}
-        />
+                </CardContent>
+
+                <CardFooter className="shrink-0 border-t border-slate-100 bg-background p-3">
+                    <div className="flex w-full flex-col gap-2">
+                        {briefDisplayBadges.length > 0 && (
+                            <div className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-white/90 px-3 py-2 text-[11px] text-slate-500 shadow-sm">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/5 px-2 py-0.5 font-semibold uppercase tracking-[0.25em] text-slate-600">
+                                    <Sparkles className="h-3 w-3 text-amber-500" />
+                                    Brief
+                                </span>
+                                <div
+                                    className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap pr-1"
+                                    title={briefDisplayBadges.join(" · ")}
+                                >
+                                    {briefDisplayBadges.map((badge, index) => (
+                                        <span
+                                            key={`${badge}-${index}`}
+                                            className={cn(
+                                                "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                                                briefTagTone(badge)
+                                            )}
+                                        >
+                                            {badge}
+                                        </span>
+                                    ))}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleOpenBriefPanel}
+                                    disabled={status === "streaming"}
+                                    className={cn(
+                                        "shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 transition hover:border-slate-400",
+                                        status === "streaming" &&
+                                        "cursor-not-allowed opacity-50 hover:border-slate-200"
+                                    )}
+                                >
+                                    调整
+                                </button>
+                            </div>
+                        )}
+                        <ChatInputOptimized
+                            input={input}
+                            status={status}
+                            onSubmit={onFormSubmit}
+                            onChange={handleInputChange}
+                            onClearChat={handleClearChat}
+                            files={files}
+                            onFileChange={handleFileChange}
+                            showHistory={showHistory}
+                            onToggleHistory={setShowHistory}
+                            isCompactMode={isCompactMode && isConversationStarted}
+                            selectedModelKey={selectedModelKey}
+                            modelOptions={modelOptions}
+                            onModelChange={selectModel}
+                            onManageModels={() => setIsModelConfigOpen(true)}
+                            onModelStreamingChange={handleModelStreamingChange}
+                            comparisonEnabled={isComparisonAllowed}
+                            onCompareRequest={async () => {
+                                if (!isComparisonAllowed) {
+                                    return;
+                                }
+                                if (!input.trim()) {
+                                    return;
+                                }
+
+                                // 先添加用户消息
+                                const enrichedInput =
+                                    briefContext.prompt.length > 0
+                                        ? `${briefContext.prompt}\n\n${input}`
+                                        : input;
+
+                                const parts: Array<
+                                    | { type: "text"; text: string; displayText?: string }
+                                    | { type: "file"; url: string; mediaType: string }
+                                > = [{ type: "text", text: enrichedInput, displayText: input }];
+
+                                if (files.length > 0) {
+                                    const attachments = await serializeAttachments(files);
+                                    attachments.forEach(({ url, mediaType }) => {
+                                        parts.push({
+                                            type: "file",
+                                            url,
+                                            mediaType,
+                                        });
+                                    });
+                                }
+
+                                // 生成用户消息 ID
+                                const userMessageId = `user-compare-${Date.now()}`;
+
+                                // 手动添加用户消息到 messages（这样消息会显示在对话中）
+                                setMessages((prev) => [
+                                    ...prev,
+                                    {
+                                        id: userMessageId,
+                                        role: "user",
+                                        parts,
+                                    } as any,
+                                ]);
+
+                                // 然后发起对比请求，传入用户消息 ID 作为 anchor
+                                void handleCompareRequest(userMessageId);
+                                setInput("");
+                                setFiles([]);
+                            }}
+                            onOpenComparisonConfig={() => {
+                                if (!isComparisonAllowed) return;
+                                setIsComparisonConfigOpen(true);
+                            }}
+                            isCompareLoading={isComparisonRunning}
+                            interactionLocked={requiresBranchDecision || !selectedModel}
+                            renderMode={renderMode}
+                            onRenderModeChange={setRenderMode}
+                        />
+                    </div>
+                </CardFooter>
+
+            </Card>
+            <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
+                <DialogContent className="!max-w-[95vw] w-[95vw] h-[90vh] p-0 overflow-hidden">
+                    <DialogHeader className="px-6 pt-4 pb-2">
+                        <DialogTitle>全屏模板库</DialogTitle>
+                        <DialogDescription>
+                            大屏浏览全部模板，包含筛选、预览与快捷应用。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="h-[calc(90vh-96px)]">
+                        <TemplateGallery
+                            onSelectTemplate={(template) => {
+                                if (status === "streaming") return;
+                                if (!ensureBranchSelectionSettled()) return;
+                                setBriefState(template.brief);
+                                setInput(template.prompt);
+                                if (files.length > 0) {
+                                    handleFileChange([]);
+                                }
+                                setIsTemplateDialogOpen(false);
+                                closeToolSidebar();
+                            }}
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>交流联系</DialogTitle>
+                        <DialogDescription>
+                            如果你在使用 FlowPilot 或图表创作时遇到问题、希望一起探讨方案，
+                            欢迎通过微信联系我。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-slate-50 p-4 shadow-inner">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-violet-500">
+                            微信号
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                            <span className="text-lg font-semibold tracking-wide text-slate-900">
+                                leland1999
+                            </span>
+                            <button
+                                type="button"
+                                onClick={handleCopyWechat}
+                                className={cn(
+                                    "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] font-medium transition",
+                                    contactCopyState === "copied"
+                                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                        : "border-violet-200 bg-white text-violet-600 hover:border-violet-300"
+                                )}
+                            >
+                                {contactCopyState === "copied" ? (
+                                    <>
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                        已复制
+                                    </>
+                                ) : (
+                                    <>
+                                        <Copy className="h-3.5 w-3.5" />
+                                        复制
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                        <p className="mt-3 text-xs text-slate-500">
+                            简单备注一下问题背景或想聊的主题，我会在方便时尽快回复。
+                        </p>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <FlowPilotBriefDialog
+                open={isBriefDialogOpen}
+                onOpenChange={setIsBriefDialogOpen}
+                state={briefState}
+                onChange={(next) =>
+                    setBriefState((prev) => ({
+                        ...prev,
+                        ...next,
+                    }))
+                }
+                disabled={status === "streaming"}
+            />
+            <ModelComparisonConfigDialog
+                open={isComparisonConfigOpen}
+                onOpenChange={setIsComparisonConfigOpen}
+                config={comparisonConfig}
+                onConfigChange={setComparisonConfig}
+                defaultPrimaryKey={selectedModelKey}
+                models={modelOptions}
+                onManageModels={() => setIsModelConfigOpen(true)}
+            />
+            <ModelConfigDialog
+                open={isModelConfigOpen}
+                onOpenChange={setIsModelConfigOpen}
+                endpoints={modelEndpoints}
+                onSave={saveEndpoints}
+            />
         </>
     );
 }

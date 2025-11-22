@@ -26,10 +26,13 @@ export interface DiagramTemplate {
   // Display information
   title: string;
   description: string;
+  previewUrl?: string;
   
   // Categorization
   category: TemplateCategory;
   tags: string[];
+  industryTags?: string[];
+  scenes?: string[];
   difficulty: TemplateDifficulty;
   
   // Special badges
@@ -51,6 +54,12 @@ export interface DiagramTemplate {
   estimatedTime: string; // e.g., "5 min", "10 min"
   usageCount?: number;
   createdAt?: string;
+  rating?: number; // 1-5 rating
+  author?: string; // Template creator name
+  
+  // Enhanced details for modal
+  useCases?: string[]; // List of use cases
+  features?: string[]; // Key features list
 }
 
 /**

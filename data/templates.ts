@@ -20,6 +20,21 @@ export const DIAGRAM_TEMPLATES: DiagramTemplate[] = [
       to: "#1d4ed8",
     },
     estimatedTime: "5 min",
+    usageCount: 1247,
+    rating: 4.8,
+    author: "FlowPilot Team",
+    useCases: [
+      "人力资源部门标准化入职流程",
+      "跨部门协作入职项目管理",
+      "新员工入职体验优化",
+      "远程入职流程设计",
+    ],
+    features: [
+      "完整的入职时间线规划",
+      "多部门协作泳道设计",
+      "关键决策点标注",
+      "自动化任务提醒节点",
+    ],
     prompt: `Create an employee onboarding flowchart from offer acceptance to first day:
 - Pre-onboarding: Background check → Contract signing → IT setup request
 - Day 1: Welcome meeting → Office tour → Equipment setup → Access provisioning
@@ -51,6 +66,21 @@ export const DIAGRAM_TEMPLATES: DiagramTemplate[] = [
       to: "#6d28d9",
     },
     estimatedTime: "10 min",
+    usageCount: 892,
+    rating: 4.7,
+    author: "DevOps Team",
+    useCases: [
+      "API文档可视化",
+      "微服务架构设计",
+      "系统集成方案展示",
+      "开发团队技术培训",
+    ],
+    features: [
+      "完整的请求-响应时序图",
+      "多层认证流程展示",
+      "错误处理路径标注",
+      "性能指标可视化",
+    ],
     prompt: `Create API request/response sequence diagram:
 - Actors: Client, API Gateway, Auth Service, Backend Service, Database
 - Flow:
@@ -88,6 +118,21 @@ export const DIAGRAM_TEMPLATES: DiagramTemplate[] = [
       to: "#1d4ed8",
     },
     estimatedTime: "10 min",
+    usageCount: 1056,
+    rating: 4.6,
+    author: "Strategy Team",
+    useCases: [
+      "战略规划决策分析",
+      "投资项目评估",
+      "市场进入策略制定",
+      "风险管理框架设计",
+    ],
+    features: [
+      "多层级决策树结构",
+      "概率权重计算",
+      "结果可视化评分",
+      "风险等级色彩编码",
+    ],
     prompt: `Create a business decision tree for "Should we launch product in new market?":
 - Root decision: Market size > $10M? (Yes/No)
 - Branch 1 (Yes): Competition level? (High/Medium/Low)
