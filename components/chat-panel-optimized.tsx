@@ -36,6 +36,7 @@ import { ChatInputOptimized } from "@/components/chat-input-optimized";
 import { ChatMessageDisplay } from "./chat-message-display-optimized";
 import { useDiagram } from "@/contexts/diagram-context";
 import { useConversationManager } from "@/contexts/conversation-context";
+import { useSvgEditor } from "@/contexts/svg-editor-context";
 import { cn, formatXML, replaceXMLParts } from "@/lib/utils";
 import { buildSvgRootXml } from "@/lib/svg";
 import { SessionStatus } from "@/components/session-status";
@@ -67,7 +68,7 @@ import {
 } from "@/features/chat-panel/constants";
 import { useComparisonWorkbench } from "@/features/chat-panel/hooks/use-comparison-workbench";
 import { useDiagramOrchestrator } from "@/features/chat-panel/hooks/use-diagram-orchestrator";
-import type { DiagramRenderingMode, DiagramResultEntry, ToolPanel } from "@/features/chat-panel/types";
+import type { DiagramRenderingMode, DiagramResultEntry, DiagramUpdateMeta, ToolPanel } from "@/features/chat-panel/types";
 import { serializeAttachments } from "@/features/chat-panel/utils/attachments";
 import { useModelRegistry } from "@/hooks/use-model-registry";
 import { ModelConfigDialog } from "@/components/model-config-dialog";
@@ -77,23 +78,46 @@ import { TemplateGallery } from "@/components/template-gallery";
 interface ChatPanelProps {
     onCollapse?: () => void;
     isCollapsible?: boolean;
+    renderMode?: DiagramRenderingMode;
+    onRenderModeChange?: (mode: DiagramRenderingMode) => void;
 }
 
 export default function ChatPanelOptimized({
     onCollapse,
     isCollapsible = false,
+    renderMode: controlledRenderMode,
+    onRenderModeChange,
 }: ChatPanelProps) {
     const {
         loadDiagram: onDisplayChart,
         chartXML,
         clearDiagram,
-        diagramHistory,
+        diagramHistory: mxDiagramHistory,
         restoreDiagramAt,
-        activeVersionIndex,
         fetchDiagramXml,
         runtimeError,
         setRuntimeError,
     } = useDiagram();
+    const {
+        loadSvgMarkup,
+        exportSvgMarkup,
+        clearSvg,
+        history: svgHistory,
+        restoreHistoryAt: restoreSvgHistoryAt,
+    } = useSvgEditor();
+    const [internalRenderMode, setInternalRenderMode] = useState<DiagramRenderingMode>("drawio");
+    const renderMode = controlledRenderMode ?? internalRenderMode;
+    const isSvgMode = renderMode === "svg";
+    const handleRenderModeChange = useCallback(
+        (mode: DiagramRenderingMode) => {
+            if (onRenderModeChange) {
+                onRenderModeChange(mode);
+            } else {
+                setInternalRenderMode(mode);
+            }
+        },
+        [onRenderModeChange]
+    );
 
     const {
         isConversationStarted,
@@ -121,17 +145,46 @@ export default function ChatPanelOptimized({
             onDisplayChart,
             updateActiveBranchDiagram,
         });
+    const handleCanvasUpdate = useCallback(
+        async (payload: string, meta: DiagramUpdateMeta) => {
+            if (isSvgMode) {
+                loadSvgMarkup(payload);
+                updateActiveBranchDiagram(payload);
+                return;
+            }
+            await handleDiagramXml(payload, meta);
+        },
+        [isSvgMode, loadSvgMarkup, updateActiveBranchDiagram, handleDiagramXml]
+    );
+    const tryApplyCanvasRoot = useCallback(
+        async (xml: string) => {
+            if (isSvgMode) {
+                loadSvgMarkup(xml);
+                updateActiveBranchDiagram(xml);
+                return;
+            }
+            await tryApplyRoot(xml);
+        },
+        [isSvgMode, loadSvgMarkup, updateActiveBranchDiagram, tryApplyRoot]
+    );
+    const getLatestCanvasMarkup = useCallback(
+        () => (isSvgMode ? exportSvgMarkup() : getLatestDiagramXml()),
+        [isSvgMode, exportSvgMarkup, getLatestDiagramXml]
+    );
 
     const lastBranchIdRef = useRef(activeBranchId);
 
     const fetchAndFormatDiagram = useCallback(
         async (options?: { saveHistory?: boolean }) => {
+            if (isSvgMode) {
+                return exportSvgMarkup();
+            }
             const rawXml = await fetchDiagramXml(options);
             const formatted = formatXML(rawXml);
             updateLatestDiagramXml(formatted);
             return formatted;
         },
-        [fetchDiagramXml, updateLatestDiagramXml]
+        [isSvgMode, exportSvgMarkup, fetchDiagramXml, updateLatestDiagramXml]
     );
 
     const onFetchChart = useCallback(async () => {
@@ -152,6 +205,25 @@ export default function ChatPanelOptimized({
     const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
     const hasPromptedModelSetup = useRef(false);
     const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+    const historyItems = useMemo(
+        () =>
+            isSvgMode
+                ? svgHistory.map((item) => ({
+                    svg: item.dataUrl || item.svg,
+                }))
+                : mxDiagramHistory,
+        [isSvgMode, svgHistory, mxDiagramHistory]
+    );
+    const handleRestoreHistory = useCallback(
+        (index: number) => {
+            if (isSvgMode) {
+                restoreSvgHistoryAt(index);
+            } else {
+                restoreDiagramAt(index);
+            }
+        },
+        [isSvgMode, restoreDiagramAt, restoreSvgHistoryAt]
+    );
 
     // 更新模型的流式设置
     const handleModelStreamingChange = useCallback((modelKey: string, isStreaming: boolean) => {
@@ -195,11 +267,11 @@ export default function ChatPanelOptimized({
         Map<string, DiagramResultEntry>
     >(new Map());
     const [diagramResultVersion, setDiagramResultVersion] = useState(0);
+    const lastLoadedSvgResultIdRef = useRef<string | null>(null);
     const getDiagramResult = useCallback(
         (toolCallId: string) => diagramResultsRef.current.get(toolCallId),
         []
     );
-    const [renderMode, setRenderMode] = useState<DiagramRenderingMode>("drawio");
 
     useEffect(() => {
         if (
@@ -217,6 +289,21 @@ export default function ChatPanelOptimized({
             hasPromptedModelSetup.current = false;
         }
     }, [hasConfiguredModels]);
+
+    useEffect(() => {
+        if (!isSvgMode) return;
+        const entries = Array.from(diagramResultsRef.current.entries());
+        if (entries.length === 0) return;
+        const lastWithSvg = [...entries]
+            .reverse()
+            .find(([, value]) => value.mode === "svg" && value.svg);
+        if (!lastWithSvg) return;
+        const [resultId, value] = lastWithSvg;
+        if (lastLoadedSvgResultIdRef.current === resultId) return;
+        loadSvgMarkup(value.svg!);
+        updateActiveBranchDiagram(value.svg!);
+        lastLoadedSvgResultIdRef.current = resultId;
+    }, [isSvgMode, diagramResultVersion, loadSvgMarkup, updateActiveBranchDiagram]);
 
     const briefContext = useMemo(() => {
         const intentMeta = INTENT_OPTIONS.find(
@@ -301,8 +388,17 @@ export default function ChatPanelOptimized({
                             throw new Error("大模型返回的 XML 为空，无法渲染。");
                         }
 
+                        if (isSvgMode) {
+                            addToolResult({
+                                tool: "display_diagram",
+                                toolCallId: toolCall.toolCallId,
+                                output: "当前处于 SVG 模式，请使用 display_svg 工具返回 SVG。",
+                            });
+                            return;
+                        }
+
                         // 立即渲染到画布
-                        await handleDiagramXml(xml, {
+                        await handleCanvasUpdate(xml, {
                             origin: "display",
                             modelRuntime: selectedModel ?? undefined,
                         });
@@ -348,9 +444,28 @@ export default function ChatPanelOptimized({
                             throw new Error("大模型返回的 SVG 为空，无法渲染。");
                         }
 
+                        if (isSvgMode) {
+                            loadSvgMarkup(svg);
+                            updateActiveBranchDiagram(svg);
+                            diagramResultsRef.current.set(toolCall.toolCallId, {
+                                xml: svg,
+                                svg,
+                                mode: "svg",
+                                runtime: selectedModel ?? undefined,
+                            });
+                            setDiagramResultVersion((prev) => prev + 1);
+
+                            addToolResult({
+                                tool: "display_svg",
+                                toolCallId: toolCall.toolCallId,
+                                output: "SVG 已载入新编辑器，可直接编辑。",
+                            });
+                            return;
+                        }
+
                         const { rootXml } = buildSvgRootXml(svg);
 
-                        await handleDiagramXml(rootXml, {
+                        await handleCanvasUpdate(rootXml, {
                             origin: "display",
                             modelRuntime: selectedModel ?? undefined,
                             toolCallId: toolCall.toolCallId,
@@ -466,9 +581,9 @@ export default function ChatPanelOptimized({
         briefContext,
         input,
         status,
-        tryApplyRoot,
-        handleDiagramXml,
-        getLatestDiagramXml,
+        tryApplyRoot: tryApplyCanvasRoot,
+        handleDiagramXml: handleCanvasUpdate,
+        getLatestDiagramXml: getLatestCanvasMarkup,
         messages,
         modelOptions: modelOptions,
         selectedModelKey,
@@ -825,8 +940,12 @@ export default function ChatPanelOptimized({
         });
         setMessages([]);
         resetActiveBranch();
-        updateActiveBranchDiagram(EMPTY_MXFILE);
-        clearDiagram();
+        updateActiveBranchDiagram(isSvgMode ? null : EMPTY_MXFILE);
+        if (isSvgMode) {
+            clearSvg();
+        } else {
+            clearDiagram();
+        }
         clearConversation();
         resetWorkbench();
     };
@@ -1140,8 +1259,8 @@ export default function ChatPanelOptimized({
                     </div>
 
                 </CardHeader>
-                <CardContent className="flex flex-1 min-h-0 flex-col px-3 pb-2 pt-2 overflow-hidden">
-                    <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-hidden">
+                <CardContent className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                         {!selectedModel && (
                             <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-2 text-sm text-amber-900">
                                 <div>
@@ -1353,7 +1472,9 @@ export default function ChatPanelOptimized({
                                 isCompareLoading={isComparisonRunning}
                                 interactionLocked={requiresBranchDecision || !selectedModel}
                                 renderMode={renderMode}
-                                onRenderModeChange={setRenderMode}
+                                onRenderModeChange={handleRenderModeChange}
+                                historyItems={historyItems}
+                                onRestoreHistory={handleRestoreHistory}
                                 onStop={() =>
                                     handleStopAll({
                                         type: "success",

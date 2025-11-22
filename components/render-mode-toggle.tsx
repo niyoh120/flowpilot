@@ -11,6 +11,7 @@ interface RenderModeToggleProps {
     onChange?: (mode: RenderMode) => void;
     disabled?: boolean;
     className?: string;
+    iconOnly?: boolean;
 }
 
 const MODES: Array<{
@@ -38,6 +39,7 @@ export function RenderModeToggle({
     onChange,
     disabled = false,
     className,
+    iconOnly = false,
 }: RenderModeToggleProps) {
     return (
         <div
@@ -54,6 +56,7 @@ export function RenderModeToggle({
                     <button
                         key={mode.id}
                         type="button"
+                        aria-label={mode.label}
                         aria-pressed={isActive}
                         onClick={() => {
                             if (disabled) return;
@@ -61,7 +64,10 @@ export function RenderModeToggle({
                         }}
                         disabled={disabled}
                         className={cn(
-                            "flex items-center gap-1 px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
+                            "flex items-center py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
+                            iconOnly
+                                ? "px-3 min-w-[36px] justify-center"
+                                : "gap-1 px-2.5",
                             index > 0 && "border-l border-slate-200/70",
                             isActive
                                 ? "bg-slate-900 text-white shadow-sm"
@@ -69,7 +75,7 @@ export function RenderModeToggle({
                         )}
                     >
                         <Icon className="h-3.5 w-3.5" />
-                        <span>{mode.label}</span>
+                        {!iconOnly && <span>{mode.label}</span>}
                     </button>
                 );
 

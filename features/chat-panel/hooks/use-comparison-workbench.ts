@@ -424,8 +424,8 @@ export function useComparisonWorkbench({
                 const rawId = ensureString(item?.id) ?? model.id;
                 const resultId = `${model.key}__${model.slot}`;
                 let resolvedXml = xml;
-                let mode: "drawio" | "svg" | undefined = "drawio";
-                if (!resolvedXml && svg) {
+                let mode: "drawio" | "svg" | undefined = renderMode === "svg" ? "svg" : "drawio";
+                if (!resolvedXml && svg && renderMode !== "svg") {
                     try {
                         const { rootXml } = buildSvgRootXml(svg);
                         resolvedXml = rootXml;
@@ -437,7 +437,9 @@ export function useComparisonWorkbench({
                     mode = "svg";
                 }
                 const status: ComparisonResultStatus =
-                    item?.status === "error" || !resolvedXml ? "error" : "ok";
+                    item?.status === "error" || (!resolvedXml && !svg)
+                        ? "error"
+                        : "ok";
 
                 return {
                     id: resultId,
@@ -515,21 +517,21 @@ export function useComparisonWorkbench({
                 return;
             }
 
-            // 获取可用的 XML（若仅有 SVG 则先转换）
-            let finalXml = result.xml ?? "";
-            if (!finalXml && result.svg) {
+            // 获取可用的内容：SVG 模式优先使用 svg，其余模式使用 XML（必要时转换）
+            let canvasPayload = renderMode === "svg" ? result.svg ?? "" : result.xml ?? "";
+            if (renderMode !== "svg" && !canvasPayload && result.svg) {
                 try {
                     const { rootXml } = buildSvgRootXml(result.svg);
-                    finalXml = rootXml;
+                    canvasPayload = rootXml;
                 } catch (error) {
                     triggerComparisonNotice("error", "SVG 转换失败，无法应用结果。");
                     return;
                 }
             }
 
-            const trimmedXml = finalXml.trim();
+            const trimmedXml = (canvasPayload || "").trim();
             if (trimmedXml.length === 0) {
-                triggerComparisonNotice("error", "XML 内容为空，无法应用。");
+                triggerComparisonNotice("error", "返回内容为空，无法应用。");
                 return;
             }
 

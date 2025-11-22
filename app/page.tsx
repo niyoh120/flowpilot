@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { MessageSquare, Minimize2 } from "lucide-react";
 import { useDrawioDiagnostics } from "@/hooks/use-drawio-diagnostics";
 import { WorkspaceNav } from "@/components/workspace-nav";
+import type { DiagramRenderingMode } from "@/features/chat-panel/types";
+import { SvgStudio } from "@/components/svg-studio";
 
 export default function Home() {
     const { drawioRef, handleDiagramExport, setRuntimeError } = useDiagram();
@@ -18,6 +20,7 @@ export default function Home() {
     const [isChatVisible, setIsChatVisible] = useState(true);
     const [chatWidthPercent, setChatWidthPercent] = useState(34);
     const [isResizingChat, setIsResizingChat] = useState(false);
+    const [renderMode, setRenderMode] = useState<DiagramRenderingMode>("drawio");
     const resizeRafRef = React.useRef<number | null>(null);
     const pendingChatPercentRef = React.useRef(chatWidthPercent);
 
@@ -30,9 +33,11 @@ export default function Home() {
     useDrawioDiagnostics({
         baseUrl: drawioBaseUrl,
         onRuntimeError: (payload) => {
+            if (renderMode !== "drawio") return;
             setRuntimeError(payload);
         },
         onRuntimeSignal: (event) => {
+            if (renderMode !== "drawio") return;
             if (event?.event === "load") {
                 setRuntimeError(null);
             }
@@ -58,7 +63,7 @@ export default function Home() {
     useEffect(() => {
         // 设置超时检测 - 如果 15 秒后仍未加载成功，显示错误
         const timeout = setTimeout(() => {
-            if (isDrawioLoading) {
+            if (isDrawioLoading && renderMode === "drawio") {
                 setDrawioError(t("drawio.loadTimeout"));
                 setIsDrawioLoading(false);
             }
@@ -73,6 +78,8 @@ export default function Home() {
         setIsDrawioLoading(false);
         setDrawioError(null);
     };
+
+    const showDrawio = renderMode === "drawio";
 
     if (isMobile) {
         return (
@@ -180,7 +187,7 @@ export default function Home() {
 
     const RESIZER_WIDTH = 10;
     const gridTemplateColumns = isChatVisible
-        ? `minmax(520px, ${Math.max(20, 100 - chatWidthPercent)}fr) ${RESIZER_WIDTH}px minmax(320px, ${chatWidthPercent}fr)`
+        ? `${100 - chatWidthPercent}fr ${RESIZER_WIDTH}px ${chatWidthPercent}fr`
         : "1fr";
 
     return (
@@ -190,11 +197,12 @@ export default function Home() {
                 <div
                     ref={mainContentRef}
                     className={cn(
-                        "grid h-dvh min-h-0 flex-1"
+                        "grid h-dvh min-h-0 flex-1",
+                        !isChatVisible && "grid-cols-1"
                     )}
                     style={{ gridTemplateColumns }}
                 >
-                    <div className="relative flex h-full min-h-0 p-1">
+                    <div className="relative flex h-full min-h-0 min-w-0 p-1">
                         <div
                             className={cn(
                                 "pointer-events-none",
@@ -227,49 +235,55 @@ export default function Home() {
                                 )}
                             </button>
                         </div>
-                        {drawioError ? (
-                            <div className="flex items-center justify-center h-full bg-white rounded border-2 border-red-200">
-                                <div className="text-center p-8 max-w-md">
-                                    <h2 className="text-xl font-semibold text-red-600 mb-4">
-                                        {t("drawio.loadFailed")}
-                                    </h2>
-                                    <p className="text-gray-700 mb-4">{drawioError}</p>
-                                    <div className="text-sm text-gray-600 text-left bg-gray-50 p-4 rounded">
-                                        <p className="font-semibold mb-2">{t("drawio.solutions")}</p>
-                                        <ol className="list-decimal list-inside space-y-1">
-                                            <li>{t("drawio.solution1")}</li>
-                                            <li>{t("drawio.solution2")}</li>
-                                            <li className="ml-4 font-mono text-xs bg-white p-2 rounded mt-2">
-                                                NEXT_PUBLIC_DRAWIO_BASE_URL=https://app.diagrams.net
-                                            </li>
-                                            <li>{t("drawio.solution3")}</li>
-                                        </ol>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {isDrawioLoading && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-10">
-                                        <div className="text-center">
-                                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                                            <p className="text-gray-600">{t("drawio.loadingEditor")}</p>
+                        {showDrawio ? (
+                            drawioError ? (
+                                <div className="flex items-center justify-center h-full bg-white rounded border-2 border-red-200">
+                                    <div className="text-center p-8 max-w-md">
+                                        <h2 className="text-xl font-semibold text-red-600 mb-4">
+                                            {t("drawio.loadFailed")}
+                                        </h2>
+                                        <p className="text-gray-700 mb-4">{drawioError}</p>
+                                        <div className="text-sm text-gray-600 text-left bg-gray-50 p-4 rounded">
+                                            <p className="font-semibold mb-2">{t("drawio.solutions")}</p>
+                                            <ol className="list-decimal list-inside space-y-1">
+                                                <li>{t("drawio.solution1")}</li>
+                                                <li>{t("drawio.solution2")}</li>
+                                                <li className="ml-4 font-mono text-xs bg-white p-2 rounded mt-2">
+                                                    NEXT_PUBLIC_DRAWIO_BASE_URL=https://app.diagrams.net
+                                                </li>
+                                                <li>{t("drawio.solution3")}</li>
+                                            </ol>
                                         </div>
                                     </div>
-                                )}
-                                <DrawIoEmbed
-                                    ref={drawioRef}
-                                    baseUrl={drawioBaseUrl}
-                                    onExport={handleDiagramExport}
-                                    onLoad={handleDrawioLoad}
-                                    urlParameters={{
-                                        spin: true,
-                                        libraries: false,
-                                        saveAndExit: false,
-                                        noExitBtn: true,
-                                    }}
-                                />
-                            </>
+                                </div>
+                            ) : (
+                                <>
+                                    {isDrawioLoading && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-10">
+                                            <div className="text-center">
+                                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                                                <p className="text-gray-600">{t("drawio.loadingEditor")}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <DrawIoEmbed
+                                        ref={drawioRef}
+                                        baseUrl={drawioBaseUrl}
+                                        onExport={handleDiagramExport}
+                                        onLoad={handleDrawioLoad}
+                                        urlParameters={{
+                                            spin: true,
+                                            libraries: false,
+                                            saveAndExit: false,
+                                            noExitBtn: true,
+                                        }}
+                                    />
+                                </>
+                            )
+                        ) : (
+                            <div className="flex h-full w-full rounded-xl border border-slate-200 bg-white/90">
+                                <SvgStudio />
+                            </div>
                         )}
                     </div>
                     {isChatVisible && (
@@ -298,6 +312,8 @@ export default function Home() {
                             <ChatPanelOptimized
                                 onCollapse={() => setIsChatVisible(false)}
                                 isCollapsible
+                                renderMode={renderMode}
+                                onRenderModeChange={setRenderMode}
                             />
                         </div>
                     )}

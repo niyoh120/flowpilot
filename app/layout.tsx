@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { DiagramProvider } from "@/contexts/diagram-context";
 import { ConversationProvider } from "@/contexts/conversation-context";
 import { LocaleProvider } from "@/contexts/locale-context";
+import { SvgEditorProvider } from "@/contexts/svg-editor-context";
 
 import "./globals.css";
 
@@ -34,7 +35,9 @@ export default function RootLayout({
             >
                 <LocaleProvider>
                     <ConversationProvider>
-                        <DiagramProvider>{children}</DiagramProvider>
+                        <DiagramProvider>
+                            <SvgEditorProvider>{children}</SvgEditorProvider>
+                        </DiagramProvider>
                     </ConversationProvider>
                 </LocaleProvider>
 

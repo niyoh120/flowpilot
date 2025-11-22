@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { ButtonWithTooltip } from "@/components/button-with-tooltip";
 import { FilePreviewList } from "@/components/file-preview-list";
-import { useDiagram } from "@/contexts/diagram-context";
 import { HistoryDialog } from "@/components/history-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { cn } from "@/lib/utils";
@@ -47,6 +46,8 @@ interface ChatInputOptimizedProps {
     comparisonEnabled?: boolean;
     onStop?: () => void;
     isBusy?: boolean;
+    historyItems?: Array<{ svg: string }>;
+    onRestoreHistory?: (index: number) => void;
 }
 
 export function ChatInputOptimized({
@@ -74,14 +75,20 @@ export function ChatInputOptimized({
     comparisonEnabled = true,
     onStop,
     isBusy = false,
+    historyItems = [],
+    onRestoreHistory,
 }: ChatInputOptimizedProps) {
-    const { diagramHistory } = useDiagram();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const controlBarRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [showClearDialog, setShowClearDialog] = useState(false);
+    const [isRenderModeIconOnly, setIsRenderModeIconOnly] = useState(false);
+    const [shouldHideModelSelector, setShouldHideModelSelector] = useState(false);
 
     const MAX_VISIBLE_LINES = 5;
+    const RENDER_MODE_ICON_BREAKPOINT = 460;
+    const MODEL_SELECTOR_HIDE_BREAKPOINT = 400;
 
     // Auto-resize textarea based on content
     const adjustTextareaHeight = useCallback(() => {
@@ -210,6 +217,35 @@ export function ChatInputOptimized({
         setShowClearDialog(false);
     };
 
+    // 监听底部工具栏宽度，窄屏时收起文字与模型选择
+    useEffect(() => {
+        const container = controlBarRef.current;
+        if (!container || typeof ResizeObserver === "undefined") return;
+
+        const updateFlags = (width: number) => {
+            const compactRenderToggle = width < RENDER_MODE_ICON_BREAKPOINT;
+            const hideModelPicker = width < MODEL_SELECTOR_HIDE_BREAKPOINT;
+
+            setIsRenderModeIconOnly((prev) =>
+                prev === compactRenderToggle ? prev : compactRenderToggle
+            );
+            setShouldHideModelSelector((prev) =>
+                prev === hideModelPicker ? prev : hideModelPicker
+            );
+        };
+
+        updateFlags(container.getBoundingClientRect().width);
+
+        const resizeObserver = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) return;
+            updateFlags(entry.contentRect.width);
+        });
+
+        resizeObserver.observe(container);
+        return () => resizeObserver.disconnect();
+    }, []);
+
     return (
         <form
             onSubmit={onSubmit}
@@ -260,7 +296,10 @@ export function ChatInputOptimized({
                     />
                 </div>
 
-                <div className="flex flex-nowrap items-center justify-between gap-2 px-3 pt-1 pb-1.5 overflow-x-auto scrollbar-hide">
+                <div
+                    ref={controlBarRef}
+                    className="flex flex-nowrap items-center justify-between gap-2 px-3 pt-1 pb-1.5 overflow-x-auto scrollbar-hide"
+                >
                     <div className="flex items-center gap-1.5">
                         <ButtonWithTooltip
                             type="button"
@@ -282,7 +321,7 @@ export function ChatInputOptimized({
                             onClick={() => onToggleHistory(true)}
                             disabled={
                                 status === "streaming" ||
-                                diagramHistory.length === 0 ||
+                                historyItems.length === 0 ||
                                 interactionLocked
                             }
                             tooltipContent="查看图表变更记录"
@@ -296,17 +335,19 @@ export function ChatInputOptimized({
                             value={renderMode}
                             onChange={onRenderModeChange}
                             disabled={status === "streaming" || interactionLocked}
+                            iconOnly={isRenderModeIconOnly}
                         />
-                        <ModelSelector
-                            selectedModelKey={selectedModelKey}
-                            onModelChange={onModelChange}
-                            models={modelOptions}
-                            onManage={onManageModels}
-                            disabled={status === "streaming" || interactionLocked}
-                            onModelStreamingChange={onModelStreamingChange}
-                            compact
-
-                        />
+                        {!shouldHideModelSelector && (
+                            <ModelSelector
+                                selectedModelKey={selectedModelKey}
+                                onModelChange={onModelChange}
+                                models={modelOptions}
+                                onManage={onManageModels}
+                                disabled={status === "streaming" || interactionLocked}
+                                onModelStreamingChange={onModelStreamingChange}
+                                compact
+                            />
+                        )}
                         {comparisonEnabled ? (
                             <div className="flex items-center gap-2">
                                 {isBusy ? (
@@ -426,6 +467,8 @@ export function ChatInputOptimized({
             <HistoryDialog
                 showHistory={showHistory}
                 onToggleHistory={onToggleHistory}
+                items={historyItems}
+                onRestore={onRestoreHistory}
             />
         </form>
     );

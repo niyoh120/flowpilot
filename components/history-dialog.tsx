@@ -15,13 +15,19 @@ import { useDiagram } from "@/contexts/diagram-context";
 interface HistoryDialogProps {
     showHistory: boolean;
     onToggleHistory: (show: boolean) => void;
+    items?: Array<{ svg: string }>;
+    onRestore?: (index: number) => void;
 }
 
 export function HistoryDialog({
     showHistory,
     onToggleHistory,
+    items,
+    onRestore,
 }: HistoryDialogProps) {
     const { restoreDiagramAt, diagramHistory } = useDiagram();
+    const historyItems = items ?? diagramHistory;
+    const handleRestore = onRestore ?? restoreDiagramAt;
 
     return (
         <Dialog open={showHistory} onOpenChange={onToggleHistory}>
@@ -35,18 +41,18 @@ export function HistoryDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                {diagramHistory.length === 0 ? (
+                {historyItems.length === 0 ? (
                     <div className="text-center p-4 text-gray-500">
                         暂无历史记录，发送消息后会自动保存版本。
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 py-4">
-                        {diagramHistory.map((item, index) => (
+                        {historyItems.map((item, index) => (
                             <div
                                 key={index}
                                 className="border rounded-md p-2 cursor-pointer hover:border-primary transition-colors"
                                 onClick={() => {
-                                    restoreDiagramAt(index);
+                                    handleRestore(index);
                                     onToggleHistory(false);
                                 }}
                             >

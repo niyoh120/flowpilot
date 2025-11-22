@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
     ChevronDown,
@@ -490,17 +490,40 @@ export function FlowPilotBriefLauncher({
     badges,
 }: FlowPilotBriefLauncherProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [isCompact, setIsCompact] = useState(false);
+
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container || typeof ResizeObserver === "undefined") return;
+
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) return;
+            setIsCompact(entry.contentRect.width < 560);
+        });
+
+        observer.observe(container);
+        return () => observer.disconnect();
+    }, []);
 
     const renderSummaryBadges = () => {
         if (badges.length === 0) return null;
         const clipped = badges.slice(0, 5);
         const remaining = Math.max(0, badges.length - 5);
         return (
-            <div className="flex flex-wrap gap-1 mt-1">
+            <div
+                className={cn(
+                    "mt-1 flex gap-1",
+                    isCompact
+                        ? "flex-nowrap overflow-x-auto pr-1 scrollbar-hide"
+                        : "flex-wrap"
+                )}
+            >
                 {clipped.map((badge, index) => (
                     <span
                         key={`${badge}-${index}`}
-                        className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
+                        className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 whitespace-nowrap"
                     >
                         {badge}
                     </span>
@@ -516,23 +539,28 @@ export function FlowPilotBriefLauncher({
 
     return (
         <>
-            <div className="rounded-2xl border bg-white/90 p-3 shadow-sm">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            FlowBrief 偏好
-                        </p>
-                    </div>
+            <div
+                ref={containerRef}
+                className="rounded-2xl border bg-white/90 p-3 shadow-sm"
+            >
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        FlowBrief 偏好
+                    </p>
                     <Button
                         type="button"
                         variant="outline"
-                        size="sm"
+                        size={isCompact ? "icon" : "sm"}
                         disabled={disabled}
                         onClick={() => setIsOpen(true)}
-                        className="inline-flex items-center gap-1"
+                        className={cn(
+                            "inline-flex items-center gap-1",
+                            isCompact && "rounded-full"
+                        )}
+                        aria-label="调整 FlowBrief 偏好"
                     >
                         <Settings2 className="h-4 w-4" />
-                        调整偏好
+                        {!isCompact && "调整偏好"}
                     </Button>
                 </div>
                 {renderSummaryBadges()}
