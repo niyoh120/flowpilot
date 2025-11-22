@@ -348,12 +348,33 @@ function parseElement(node: Element, inheritedTransform?: string): SvgElement | 
     }
 }
 
-function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]; defs?: string | null } {
+function decodeSvgContent(svg: string): string {
+    const trimmed = svg.trim();
+    if (trimmed.startsWith("data:image/svg+xml")) {
+        const commaIndex = trimmed.indexOf(",");
+        const payload = commaIndex >= 0 ? trimmed.slice(commaIndex + 1) : trimmed;
+        try {
+            return decodeURIComponent(payload);
+        } catch {
+            return trimmed;
+        }
+    }
+    return trimmed;
+}
+
+function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]; defs?: string | null; valid: boolean } {
+    const normalized = decodeSvgContent(svg);
     const parser = new DOMParser();
-    const parsed = parser.parseFromString(svg, "image/svg+xml");
+    const parsed = parser.parseFromString(normalized, "image/svg+xml");
     const svgEl = parsed.querySelector("svg");
     if (!svgEl) {
-        throw new Error("SVG 内容缺少 <svg> 根节点，无法解析。");
+        console.warn("SVG 内容缺少 <svg> 根节点，忽略载入。内容片段：", normalized.slice(0, 120));
+        return {
+            doc: { ...DEFAULT_DOC },
+            elements: [],
+            defs: null,
+            valid: false,
+        };
     }
     const widthAttr = svgEl.getAttribute("width");
     const heightAttr = svgEl.getAttribute("height");
@@ -392,6 +413,7 @@ function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]
         doc: { width, height, viewBox: viewBox || `0 0 ${width} ${height}` },
         elements,
         defs,
+        valid: true,
     };
 }
 
@@ -661,7 +683,15 @@ export function SvgEditorProvider({ children }: { children: React.ReactNode }) {
     const loadSvgMarkup = useCallback(
         (svg: string, options?: { saveHistory?: boolean }) => {
             try {
+                const content = svg.trim();
+                if (!content.toLowerCase().includes("<svg")) {
+                    console.warn("忽略非 SVG 内容载入：", content.slice(0, 120));
+                    return;
+                }
                 const parsed = parseSvgMarkup(svg);
+                if (!parsed.valid) {
+                    return;
+                }
                 setDoc(parsed.doc);
                 setElements(parsed.elements);
                 setDefsMarkup(parsed.defs ?? null);

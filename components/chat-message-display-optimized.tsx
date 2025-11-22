@@ -292,10 +292,12 @@ const DiagramToolCard = memo(({
                                         sizes="(max-width: 768px) 100vw, 320px"
                                         unoptimized
                                     />
-                                ) : (
-                                    <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-400">
-                                        预览转换失败
-                                    </div>
+                                ) : null}
+                                {!svgToDataUrl(displaySvg) && (
+                                    <div
+                                        className="absolute inset-0 overflow-auto p-2 text-xs text-slate-700"
+                                        dangerouslySetInnerHTML={{ __html: displaySvg }}
+                                    />
                                 )}
                             </div>
                         </div>
