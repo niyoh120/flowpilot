@@ -235,8 +235,13 @@ function buildSvgMarkup(doc: SvgDocument, elements: SvgElement[]): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="${viewBox}">${body}</svg>`;
 }
 
-function parseElement(node: Element): SvgElement | null {
-    const transform = parseTransform(node.getAttribute("transform"));
+function parseElement(node: Element, inheritedTransform?: string): SvgElement | null {
+    const nodeTransform = node.getAttribute("transform");
+    const combinedTransform = [inheritedTransform, nodeTransform]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+    const transform = parseTransform(combinedTransform || null);
     switch (node.tagName.toLowerCase()) {
         case "rect":
             return {
@@ -361,15 +366,19 @@ function parseSvgMarkup(svg: string): { doc: SvgDocument; elements: SvgElement[]
         parseNumber(heightAttr, Number.isFinite(vbH) ? vbH : DEFAULT_DOC.height) || DEFAULT_DOC.height;
 
     const elements: SvgElement[] = [];
-    const walker = (nodeList: Iterable<Node>) => {
+    const walker = (nodeList: Iterable<Node>, inheritedTransform?: string) => {
         for (const node of nodeList) {
             if (!(node instanceof Element)) continue;
-            const parsedElement = parseElement(node);
+            const parsedElement = parseElement(node, inheritedTransform);
+            const nextTransform = [inheritedTransform, node.getAttribute("transform")]
+                .filter(Boolean)
+                .join(" ")
+                .trim();
             if (parsedElement) {
                 elements.push(parsedElement);
             }
             if (node.children && node.children.length > 0) {
-                walker(Array.from(node.children));
+                walker(Array.from(node.children), nextTransform || undefined);
             }
         }
     };
